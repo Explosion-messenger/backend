@@ -4,12 +4,11 @@ from datetime import timedelta
 from typing import Optional
 import os
 import uuid
-import shutil
+from fastapi import HTTPException
 from ..models import User
 from ..schemas import UserCreate
 from ..auth import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-
-AVATAR_DIR = "avatars"
+from ..config import settings
 
 async def register_user(db: AsyncSession, user_in: UserCreate) -> Optional[User]:
     result = await db.execute(select(User).where(User.username == user_in.username))
@@ -38,16 +37,32 @@ def create_user_token(user: User):
     return {"access_token": access_token, "token_type": "bearer"}
 
 async def update_user_avatar(db: AsyncSession, user: User, file_content, filename: str) -> User:
-    file_ext = os.path.splitext(filename)[1]
+    file_ext = os.path.splitext(filename)[1].lower()
+    if file_ext not in [".jpg", ".jpeg", ".png"]:
+        raise HTTPException(status_code=400, detail="Only .jpg, .jpeg, .png are allowed for avatars")
+
     unique_filename = f"{uuid.uuid4()}{file_ext}"
-    file_path = os.path.join(AVATAR_DIR, unique_filename)
+    file_path = os.path.join(settings.AVATAR_DIR, unique_filename)
     
+    # Ensure directory exists
+    os.makedirs(settings.AVATAR_DIR, exist_ok=True)
+    
+    file_size = 0
     with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file_content, buffer)
+        while True:
+            chunk = file_content.read(1024 * 512)  # 512KB chunks
+            if not chunk:
+                break
+            file_size += len(chunk)
+            if file_size > 5 * 1024 * 1024:  # 5MB avatar limit
+                buffer.close()
+                os.remove(file_path)
+                raise HTTPException(status_code=413, detail="Avatar is too large (max 5MB)")
+            buffer.write(chunk)
     
     # If user had an old avatar, delete it
     if user.avatar_path:
-        old_path = os.path.join(AVATAR_DIR, user.avatar_path)
+        old_path = os.path.join(settings.AVATAR_DIR, user.avatar_path)
         if os.path.exists(old_path):
             try:
                 os.remove(old_path)
@@ -61,7 +76,7 @@ async def update_user_avatar(db: AsyncSession, user: User, file_content, filenam
 
 async def delete_user_avatar(db: AsyncSession, user: User) -> User:
     if user.avatar_path:
-        file_path = os.path.join(AVATAR_DIR, user.avatar_path)
+        file_path = os.path.join(settings.AVATAR_DIR, user.avatar_path)
         if os.path.exists(file_path):
             try:
                 os.remove(file_path)
@@ -74,9 +89,9 @@ async def delete_user_avatar(db: AsyncSession, user: User) -> User:
 
 async def clear_all_avatars(db: AsyncSession):
     # 1. Delete all files in the directory
-    if os.path.exists(AVATAR_DIR):
-        for filename in os.listdir(AVATAR_DIR):
-            file_path = os.path.join(AVATAR_DIR, filename)
+    if os.path.exists(settings.AVATAR_DIR):
+        for filename in os.listdir(settings.AVATAR_DIR):
+            file_path = os.path.join(settings.AVATAR_DIR, filename)
             try:
                 if os.path.isfile(file_path):
                     os.remove(file_path)

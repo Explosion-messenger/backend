@@ -1,12 +1,12 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from datetime import datetime
 from typing import Optional, List
 
 class UserBase(BaseModel):
-    username: str
+    username: str = Field(..., min_length=3, max_length=50, description="Unique username")
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(..., min_length=6, max_length=100, description="User password")
 
 class UserOut(UserBase):
     id: int
@@ -27,7 +27,7 @@ class FileOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class MessageBase(BaseModel):
-    text: Optional[str] = None
+    text: Optional[str] = Field(None, max_length=4000)
     file_id: Optional[int] = None
 
 class MessageCreate(MessageBase):
@@ -43,13 +43,10 @@ class MessageOut(BaseModel):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
-class ChatBase(BaseModel):
-    pass
-
 class ChatCreate(BaseModel):
-    recipient_id: Optional[int] = None
-    member_ids: Optional[List[int]] = None
-    name: Optional[str] = None
+    recipient_id: Optional[int] = Field(None, description="For private chats")
+    member_ids: Optional[List[int]] = Field(None, description="For group chats")
+    name: Optional[str] = Field(None, max_length=100, description="Group name")
     is_group: bool = False
 
 class ChatOut(BaseModel):
@@ -60,3 +57,7 @@ class ChatOut(BaseModel):
     members: List[UserOut]
     last_message: Optional[MessageOut] = None
     model_config = ConfigDict(from_attributes=True)
+
+class StatusResponse(BaseModel):
+    status: str
+    message: Optional[str] = None
