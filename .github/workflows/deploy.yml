@@ -6,7 +6,8 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/messenger-backend
+  # We use a hardcoded lowercase name to avoid Explosion-messenger vs explosion-messenger issues
+  IMAGE_NAME: explosion-messenger/messenger-backend
 
 jobs:
   build-and-push:
@@ -71,7 +72,7 @@ jobs:
                   retries: 10
 
               backend:
-                image: ghcr.io/${{ github.repository_owner }}/messenger-backend:latest
+                image: ghcr.io/explosion-messenger/messenger-backend:latest
                 restart: always
                 environment:
                   DATABASE_URL: \${DATABASE_URL}
