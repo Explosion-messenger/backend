@@ -10,6 +10,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-messenger}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - messenger_network
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-user} -d $${POSTGRES_DB:-messenger}" ]
       interval: 5s
@@ -19,17 +21,23 @@ services:
   backend:
     build: .
     restart: always
-    ports:
-      - "8000:8000"
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://user:password@db:5432/messenger}
       SECRET_KEY: ${SECRET_KEY:-your-secret-key}
     volumes:
       - ./uploads:/app/uploads
       - ./avatars:/app/avatars
+    networks:
+      messenger_network:
+        aliases:
+          - backend
     depends_on:
       db:
         condition: service_healthy
+
+networks:
+  messenger_network:
+    external: true
 
 volumes:
   postgres_data:
