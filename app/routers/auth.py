@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models import User
 from ..schemas import UserCreate, UserOut, Token
-from ..auth import get_current_user
+from ..auth import get_current_user, get_current_admin_user
 from ..services import user_service
 import os
 
@@ -62,7 +62,7 @@ async def delete_avatar(
 
 @router.delete("/admin/avatars/clear")
 async def clear_avatars(
+    current_admin: User = Depends(get_current_admin_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # In a real app, this should be admin-only
     return await user_service.clear_all_avatars(db)

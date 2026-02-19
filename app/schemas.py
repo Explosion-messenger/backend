@@ -11,6 +11,7 @@ class UserCreate(UserBase):
 class UserOut(UserBase):
     id: int
     avatar_path: Optional[str] = None
+    is_admin: bool = False
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
