@@ -1,0 +1,63 @@
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, BigInteger, Table, Boolean
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from .database import Base
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    avatar_path = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    messages = relationship("Message", back_populates="sender")
+    chats = relationship("ChatMember", back_populates="user")
+
+class Chat(Base):
+    __tablename__ = "chats"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=True)
+    is_group = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    members = relationship("ChatMember", back_populates="chat")
+    messages = relationship("Message", back_populates="chat")
+
+class ChatMember(Base):
+    __tablename__ = "chat_members"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chat_id = Column(Integer, ForeignKey("chats.id"))
+    user_id = Column(Integer, ForeignKey("users.id"))
+
+    chat = relationship("Chat", back_populates="members")
+    user = relationship("User", back_populates="chats")
+
+class Message(Base):
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    chat_id = Column(Integer, ForeignKey("chats.id"))
+    sender_id = Column(Integer, ForeignKey("users.id"))
+    text = Column(String, nullable=True)
+    file_id = Column(Integer, ForeignKey("files.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    chat = relationship("Chat", back_populates="messages")
+    sender = relationship("User", back_populates="messages")
+    file = relationship("File", back_populates="message")
+
+class File(Base):
+    __tablename__ = "files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filename = Column(String, nullable=False)
+    path = Column(String, nullable=False)
+    mime_type = Column(String, nullable=False)
+    size = Column(BigInteger, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    message = relationship("Message", back_populates="file", uselist=False)
