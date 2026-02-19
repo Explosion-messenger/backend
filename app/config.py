@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/messenger")
     
+    # Admin Access
+    ADMIN_PASSWORD: str = "change_me_immediately"
+    
     # File Storage
     UPLOAD_DIR: str = "uploads"
     AVATAR_DIR: str = "avatars"

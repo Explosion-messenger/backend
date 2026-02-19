@@ -73,3 +73,12 @@ async def get_current_admin_user(current_user: User = Depends(get_current_user))
             detail="The user does not have enough privileges"
         )
     return current_user
+
+from fastapi import Header
+async def verify_admin_access(x_admin_password: Optional[str] = Header(None)):
+    if not x_admin_password or x_admin_password != settings.ADMIN_PASSWORD:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Invalid Admin Password"
+        )
+    return True
