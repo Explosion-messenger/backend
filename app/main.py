@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Depends, WebSocket, WebSocketDisconnect, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 import os
@@ -32,14 +31,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal Server Error"},
     )
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # Ensure required directories exist
 for directory in [settings.UPLOAD_DIR, settings.AVATAR_DIR]:

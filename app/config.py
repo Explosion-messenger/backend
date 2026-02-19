@@ -13,9 +13,6 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 1 week
     
-    # CORS
-    BACKEND_CORS_ORIGINS: List[str] = ["*"]  # Should be restricted in production
-    
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql+asyncpg://user:password@localhost:5432/messenger")
     
