@@ -9,7 +9,7 @@ from .config import settings
 from .database import engine, Base
 from .websockets import manager
 from .auth import SECRET_KEY, ALGORITHM, get_current_user
-from .routers import auth, chats, messages, files
+from .routers import auth, chats, messages, files, admin
 
 # Configure logging
 logging.basicConfig(
@@ -46,6 +46,7 @@ app.include_router(auth.router, tags=["auth"])
 app.include_router(chats.router, tags=["chats"])
 app.include_router(messages.router, tags=["messages"])
 app.include_router(files.router, tags=["files"])
+app.include_router(admin.router, tags=["admin"])
 
 @app.get("/")
 async def root():

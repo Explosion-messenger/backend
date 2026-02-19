@@ -35,6 +35,13 @@ The API will be available at `http://localhost:8000`.
    uvicorn app.main:app --reload
    ```
 
+### Admin Access
+To grant admin privileges to a user, run:
+```bash
+python set_admin.py <username>
+```
+(Ensure your database is running and environment variables are set).
+
 ## Structure
 - `app/`: Main application code
   - `routers/`: API endpoints

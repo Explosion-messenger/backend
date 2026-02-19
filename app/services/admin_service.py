@@ -1,0 +1,39 @@
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import delete
+import os
+import shutil
+from ..models import Message, File, User
+from ..config import settings
+
+async def clear_all_messages(db: AsyncSession):
+    """Deletes all messages from the database."""
+    await db.execute(delete(Message))
+    await db.commit()
+    return {"status": "success", "message": "All messages cleared"}
+
+async def clear_all_files(db: AsyncSession):
+    """Deletes all uploaded files from DB and disk."""
+    # 1. Delete files from disk
+    if os.path.exists(settings.UPLOAD_DIR):
+        for filename in os.listdir(settings.UPLOAD_DIR):
+            file_path = os.path.join(settings.UPLOAD_DIR, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print(f'Failed to delete {file_path}. Reason: {e}')
+    
+    # 2. Clear File table in DB
+    await db.execute(delete(File))
+    await db.commit()
+    return {"status": "success", "message": "All uploaded files cleared"}
+
+async def clear_database(db: AsyncSession):
+    """Wipe all messages and files (Reset system state)."""
+    await clear_all_messages(db)
+    await clear_all_files(db)
+    # We keep users and chats, but could clear those too if needed. 
+    # For now, just messages and files as requested.
+    return {"status": "success", "message": "System state reset: all messages and files wiped"}

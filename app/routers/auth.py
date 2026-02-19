@@ -60,9 +60,3 @@ async def delete_avatar(
 ):
     return await user_service.delete_user_avatar(db, current_user)
 
-@router.delete("/admin/avatars/clear")
-async def clear_avatars(
-    current_admin: User = Depends(get_current_admin_user),
-    db: AsyncSession = Depends(get_db)
-):
-    return await user_service.clear_all_avatars(db)
