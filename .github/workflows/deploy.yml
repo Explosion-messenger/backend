@@ -50,23 +50,32 @@ jobs:
             mkdir -p ~/messenger-backend
             cd ~/messenger-backend
             
-            # Create a minimal docker-compose for the backend if it doesn't exist
+            # Login to GHCR on the server to allow pulling private images
+            echo "${{ secrets.ORG_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+            # Create/Update .env file on the server
+            cat <<EOF > .env
+            POSTGRES_USER=${{ secrets.POSTGRES_USER }}
+            POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}
+            POSTGRES_DB=${{ secrets.POSTGRES_DB }}
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            SECRET_KEY=${{ secrets.SECRET_KEY }}
+            EOF
+
+            # Create a minimal docker-compose for the backend
             cat <<EOF > docker-compose.yml
             version: '3.8'
             services:
               db:
                 image: postgres:15-alpine
                 restart: always
-                environment:
-                  POSTGRES_USER: \${POSTGRES_USER}
-                  POSTGRES_PASSWORD: \${POSTGRES_PASSWORD}
-                  POSTGRES_DB: \${POSTGRES_DB}
+                env_file: .env
                 volumes:
                   - postgres_data:/var/lib/postgresql/data
                 networks:
                   - messenger_network
                 healthcheck:
-                  test: ["CMD-SHELL", "pg_isready -U \${POSTGRES_USER} -d \${POSTGRES_DB}"]
+                  test: ["CMD-SHELL", "pg_isready -U \$\${POSTGRES_USER} -d \$\${POSTGRES_DB}"]
                   interval: 5s
                   timeout: 5s
                   retries: 10
@@ -74,16 +83,12 @@ jobs:
               backend:
                 image: ghcr.io/explosion-messenger/messenger-backend:latest
                 restart: always
-                environment:
-                  DATABASE_URL: \${DATABASE_URL}
-                  SECRET_KEY: \${SECRET_KEY}
+                env_file: .env
                 volumes:
                   - messenger_uploads:/app/uploads
                   - messenger_avatars:/app/avatars
                 networks:
-                  messenger_network:
-                    aliases:
-                      - backend
+                  - messenger_network
                 depends_on:
                   db:
                     condition: service_healthy
