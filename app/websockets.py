@@ -24,7 +24,7 @@ class ConnectionManager:
 
     async def disconnect(self, user_id: int, websocket: WebSocket):
         if user_id in self.active_connections:
-            self.active_connections[user_id].remove(websocket)
+            self.active_connections[user_id].discard(websocket)
             logger.info(f"User {user_id} disconnected. Remaining connections: {len(self.active_connections.get(user_id, []))}")
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
@@ -39,9 +39,9 @@ class ConnectionManager:
                 "online": is_online
             }
         }
-        # Broadcast to EVERYONE for simplicity in this MVP, 
-        # or we could optimize to only broadcast to "friends/contacts"
-        for other_user_id in self.active_connections:
+        # In a real app, only broadcast to contacts/members of mutual chats
+        # For simplicity, we broadcast to all current online users
+        for other_user_id in list(self.active_connections.keys()):
             if other_user_id != user_id:
                 await self.send_personal_message(status_msg, other_user_id)
 
@@ -50,19 +50,19 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: dict, user_id: int):
         if user_id in self.active_connections:
-            dead_connections = set()
-            for connection in self.active_connections[user_id]:
+            sockets = list(self.active_connections[user_id])
+            for connection in sockets:
                 try:
                     await connection.send_json(message)
                 except Exception as e:
                     logger.error(f"Failed to send message to user {user_id}: {str(e)}")
-                    dead_connections.add(connection)
+                    if user_id in self.active_connections:
+                        self.active_connections[user_id].discard(connection)
             
-            # Clean up dead connections
-            for dead in dead_connections:
-                self.active_connections[user_id].remove(dead)
-            if not self.active_connections[user_id]:
+            if user_id in self.active_connections and not self.active_connections[user_id]:
                 del self.active_connections[user_id]
+                # If the last socket just died, notify others
+                await self.broadcast_status(user_id, False)
 
     async def broadcast_to_chat(self, message: dict, member_ids: List[int]):
         logger.info(f"ConnectionManager: Broadcasting to members {member_ids}")

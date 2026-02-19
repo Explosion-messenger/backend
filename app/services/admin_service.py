@@ -13,7 +13,11 @@ async def clear_all_messages(db: AsyncSession):
 
 async def clear_all_files(db: AsyncSession):
     """Deletes all uploaded files from DB and disk."""
-    # 1. Delete files from disk
+    # 1. Clear file_id pointers in messages to avoid FK violation
+    from sqlalchemy import update
+    await db.execute(update(Message).values(file_id=None))
+    
+    # 2. Delete files from disk
     if os.path.exists(settings.UPLOAD_DIR):
         for filename in os.listdir(settings.UPLOAD_DIR):
             file_path = os.path.join(settings.UPLOAD_DIR, filename)
@@ -25,7 +29,7 @@ async def clear_all_files(db: AsyncSession):
             except Exception as e:
                 print(f'Failed to delete {file_path}. Reason: {e}')
     
-    # 2. Clear File table in DB
+    # 3. Clear File table in DB
     await db.execute(delete(File))
     await db.commit()
     return {"status": "success", "message": "All uploaded files cleared"}

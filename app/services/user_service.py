@@ -11,6 +11,7 @@ from ..auth import get_password_hash, verify_password, create_access_token, ACCE
 from ..config import settings
 
 async def register_user(db: AsyncSession, user_in: UserCreate) -> Optional[User]:
+    from sqlalchemy.exc import IntegrityError
     result = await db.execute(select(User).where(User.username == user_in.username))
     if result.scalars().first():
         return None
@@ -18,8 +19,12 @@ async def register_user(db: AsyncSession, user_in: UserCreate) -> Optional[User]
     hashed_password = get_password_hash(user_in.password)
     user = User(username=user_in.username, password_hash=hashed_password)
     db.add(user)
-    await db.commit()
-    await db.refresh(user)
+    try:
+        await db.commit()
+        await db.refresh(user)
+    except IntegrityError:
+        await db.rollback()
+        return None
     return user
 
 async def authenticate_user(db: AsyncSession, username: str, password: str) -> Optional[User]:

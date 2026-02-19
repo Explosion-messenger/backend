@@ -38,7 +38,7 @@ for directory in [settings.UPLOAD_DIR, settings.AVATAR_DIR]:
 
 # Mount static files with some security consideration
 # In production, these should be served by Nginx or S3
-app.mount("/files/download", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+# Avatars remain public for now, but uploads are protected via authenticated endpoint in files.py
 app.mount("/avatars", StaticFiles(directory=settings.AVATAR_DIR), name="avatars")
 
 # Include routers

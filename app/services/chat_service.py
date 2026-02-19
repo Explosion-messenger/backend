@@ -59,26 +59,18 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
         if not payload.recipient_id or payload.recipient_id == creator_id:
             return None
         
-        # Check if exists
+        # Check if private chat already exists between these two members
+        from sqlalchemy import func
         stmt = (
-            select(Chat)
-            .join(ChatMember, Chat.id == ChatMember.chat_id)
-            .where(ChatMember.user_id == creator_id)
+            select(ChatMember.chat_id)
+            .join(Chat, Chat.id == ChatMember.chat_id)
             .where(Chat.is_group == False)
+            .where(ChatMember.user_id.in_([creator_id, payload.recipient_id]))
+            .group_by(ChatMember.chat_id)
+            .having(func.count(ChatMember.user_id) == 2)
         )
         result = await db.execute(stmt)
-        user_chats = result.scalars().all()
-        
-        found_chat_id = None
-        for chat_obj in user_chats:
-            member_stmt = select(ChatMember).where(ChatMember.chat_id == chat_obj.id)
-            member_result = await db.execute(member_stmt)
-            members = member_result.scalars().all()
-            
-            m_ids = [m.user_id for m in members]
-            if len(m_ids) == 2 and payload.recipient_id in m_ids:
-                found_chat_id = chat_obj.id
-                break
+        found_chat_id = result.scalars().first()
         
         if found_chat_id:
             chat_id = found_chat_id

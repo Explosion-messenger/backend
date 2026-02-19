@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, BigInteger, Table, Boolean
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, BigInteger, Table, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from .database import Base
@@ -29,6 +29,9 @@ class Chat(Base):
 
 class ChatMember(Base):
     __tablename__ = "chat_members"
+    __table_args__ = (
+        UniqueConstraint("chat_id", "user_id", name="uq_chat_user"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     chat_id = Column(Integer, ForeignKey("chats.id"))
