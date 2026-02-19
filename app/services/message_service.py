@@ -2,8 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import joinedload
 from typing import List, Optional
+import asyncio
 import os
 import logging
+from datetime import datetime, timedelta, timezone
 from ..models import Message, ChatMember, User, File
 from ..schemas import MessageCreate
 from ..websockets import manager
@@ -29,12 +31,37 @@ async def get_messages(db: AsyncSession, chat_id: int, user_id: int, offset: int
     return result.scalars().all()
 
 async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int) -> Message:
-    # Verify user is in chat
+    # 1. Artificial delay to ensure serialization and meet user request for business logic delay
+    await asyncio.sleep(0.1)
+
+    # 2. Verify user is in chat
     stmt = select(ChatMember).where(ChatMember.chat_id == payload.chat_id, ChatMember.user_id == sender_id)
     result = await db.execute(stmt)
     if not result.scalars().first():
         return None
 
+    # 3. Deduplication: Check if the exact same message was sent by the same user in the last 1 second
+    if payload.text:
+        one_second_ago = datetime.now(timezone.utc) - timedelta(seconds=1)
+        dup_stmt = (
+            select(Message)
+            .where(
+                Message.chat_id == payload.chat_id,
+                Message.sender_id == sender_id,
+                Message.text == payload.text,
+                Message.created_at >= one_second_ago
+            )
+            .order_by(Message.created_at.desc())
+        )
+        dup_result = await db.execute(dup_stmt)
+        existing_msg = dup_result.scalars().first()
+        if existing_msg:
+            # Already sent, return the existing one to avoid duplicates
+            # We still refetch with eager loading to be safe
+            stmt = select(Message).where(Message.id == existing_msg.id).options(joinedload(Message.file), joinedload(Message.sender))
+            return (await db.execute(stmt)).scalars().first()
+
+    # 4. Create new message
     message = Message(
         chat_id=payload.chat_id,
         sender_id=sender_id,
