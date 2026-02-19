@@ -1,0 +1,17 @@
+name: Trigger Infra Build
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Repository Dispatch to Infra
+        run: |
+          curl -H "Accept: application/vnd.github.v3+json" \
+               -H "Authorization: token ${{ secrets.ORG_PAT }}" \
+               --request POST \
+               --data '{"event_type": "backend_updated"}' \
+               https://api.github.com/repos/Explosion-messenger/infra/dispatches
