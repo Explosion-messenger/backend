@@ -41,5 +41,20 @@ async def save_file(db: AsyncSession, file_content, filename: str, content_type:
     return db_file
 
 async def delete_file(db: AsyncSession, file_id: int) -> bool:
-    # Optional logic to delete from DB and Disk
-    pass
+    """Delete a file record from the DB and its physical file from disk."""
+    from sqlalchemy.future import select
+    result = await db.execute(select(File).where(File.id == file_id))
+    db_file = result.scalars().first()
+    if not db_file:
+        return False
+
+    file_path = os.path.join(settings.UPLOAD_DIR, db_file.path)
+    if os.path.exists(file_path):
+        try:
+            os.remove(file_path)
+        except Exception:
+            pass
+
+    await db.delete(db_file)
+    await db.commit()
+    return True

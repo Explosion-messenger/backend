@@ -7,24 +7,52 @@ from ..schemas import ChatCreate, ChatOut
 from ..websockets import manager
 
 async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
+    # Subquery: get the latest message ID for each chat
+    from sqlalchemy import func
+    last_msg_subq = (
+        select(func.max(Message.id).label("max_id"))
+        .where(Message.chat_id == Chat.id)
+        .correlate(Chat)
+        .scalar_subquery()
+    )
+
     stmt = (
         select(Chat)
         .join(ChatMember)
         .where(ChatMember.user_id == user_id)
         .options(
             selectinload(Chat.members).joinedload(ChatMember.user),
-            selectinload(Chat.messages).options(joinedload(Message.sender))
         )
     )
     result = await db.execute(stmt)
     chats = result.unique().scalars().all()
     
+    # Fetch last messages for all chats in a single query
+    chat_ids = [chat.id for chat in chats]
+    last_messages: dict[int, Message] = {}
+    if chat_ids:
+        last_msg_ids_stmt = (
+            select(func.max(Message.id).label("msg_id"), Message.chat_id)
+            .where(Message.chat_id.in_(chat_ids))
+            .group_by(Message.chat_id)
+        )
+        last_msg_ids_result = await db.execute(last_msg_ids_stmt)
+        msg_id_map = {row.chat_id: row.msg_id for row in last_msg_ids_result}
+        
+        if msg_id_map:
+            msgs_stmt = (
+                select(Message)
+                .where(Message.id.in_(msg_id_map.values()))
+                .options(joinedload(Message.sender), joinedload(Message.file))
+            )
+            msgs_result = await db.execute(msgs_stmt)
+            for msg in msgs_result.unique().scalars().all():
+                last_messages[msg.chat_id] = msg
+
     out = []
     for chat in chats:
         members = [cm.user for cm in chat.members]
-        last_msg = None
-        if chat.messages:
-            last_msg = sorted(chat.messages, key=lambda x: x.created_at, reverse=True)[0]
+        last_msg = last_messages.get(chat.id)
         
         out.append(ChatOut(
             id=chat.id,
@@ -132,6 +160,8 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
     return chat_out
 
 async def search_users(db: AsyncSession, query: str, exclude_user_id: int):
-    stmt = select(User).where(User.username.ilike(f"%{query}%")).where(User.id != exclude_user_id)
+    # Escape SQL LIKE wildcards to prevent wildcard injection
+    safe_query = query.replace("%", "\\%").replace("_", "\\_")
+    stmt = select(User).where(User.username.ilike(f"%{safe_query}%")).where(User.id != exclude_user_id)
     result = await db.execute(stmt)
     return result.scalars().all()

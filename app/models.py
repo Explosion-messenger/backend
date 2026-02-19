@@ -13,8 +13,8 @@ class User(Base):
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    messages = relationship("Message", back_populates="sender")
-    chats = relationship("ChatMember", back_populates="user")
+    messages = relationship("Message", back_populates="sender", cascade="all, delete-orphan")
+    chats = relationship("ChatMember", back_populates="user", cascade="all, delete-orphan")
 
 class Chat(Base):
     __tablename__ = "chats"
@@ -24,8 +24,8 @@ class Chat(Base):
     is_group = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    members = relationship("ChatMember", back_populates="chat")
-    messages = relationship("Message", back_populates="chat")
+    members = relationship("ChatMember", back_populates="chat", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="chat", cascade="all, delete-orphan")
 
 class ChatMember(Base):
     __tablename__ = "chat_members"
@@ -34,8 +34,8 @@ class ChatMember(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, ForeignKey("chats.id"))
-    user_id = Column(Integer, ForeignKey("users.id"))
+    chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
 
     chat = relationship("Chat", back_populates="members")
     user = relationship("User", back_populates="chats")
@@ -44,10 +44,10 @@ class Message(Base):
     __tablename__ = "messages"
 
     id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(Integer, ForeignKey("chats.id"))
-    sender_id = Column(Integer, ForeignKey("users.id"))
+    chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"))
+    sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     text = Column(String, nullable=True)
-    file_id = Column(Integer, ForeignKey("files.id"), nullable=True)
+    file_id = Column(Integer, ForeignKey("files.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     chat = relationship("Chat", back_populates="messages")

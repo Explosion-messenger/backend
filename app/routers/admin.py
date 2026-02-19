@@ -37,9 +37,11 @@ async def wipe_system(
     authorized: bool = Depends(verify_admin_access),
     db: AsyncSession = Depends(get_db)
 ):
-    """Clear everything: messages, files, chats, and avatars."""
-    await admin_service.clear_all_messages(db)
+    """Clear everything: messages, files, chats, and avatars.
+    Order: files (nullifies message.file_id first) -> messages -> chats -> avatars
+    """
     await admin_service.clear_all_files(db)
+    await admin_service.clear_all_messages(db)
     await admin_service.clear_all_chats(db)
     await user_service.clear_all_avatars(db)
     return {"status": "success", "message": "All messages, files, chats, and avatars have been cleared"}

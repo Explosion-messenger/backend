@@ -6,7 +6,6 @@ from ..models import User
 from ..schemas import UserCreate, UserOut, Token
 from ..auth import get_current_user, get_current_admin_user
 from ..services import user_service
-import os
 
 router = APIRouter()
 
@@ -38,19 +37,7 @@ async def upload_avatar(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # Limit to 5MB for avatars
-    MAX_SIZE = 5 * 1024 * 1024
-    
     user = await user_service.update_user_avatar(db, current_user, file.file, file.filename)
-    
-    # Check size
-    file_path = os.path.join("avatars", user.avatar_path)
-    if os.path.getsize(file_path) > MAX_SIZE:
-        os.remove(file_path)
-        user.avatar_path = None
-        await db.commit()
-        raise HTTPException(status_code=413, detail="Avatar image too large")
-        
     return user
 
 @router.delete("/me/avatar", response_model=UserOut)
