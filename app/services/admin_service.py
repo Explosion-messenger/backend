@@ -2,7 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import delete
 import os
 import shutil
-from ..models import Message, File, User
+from ..models import Message, File, User, Chat, ChatMember
 from ..config import settings
 
 async def clear_all_messages(db: AsyncSession):
@@ -34,10 +34,18 @@ async def clear_all_files(db: AsyncSession):
     await db.commit()
     return {"status": "success", "message": "All uploaded files cleared"}
 
+async def clear_all_chats(db: AsyncSession):
+    """Deletes all chats and chat members from the database."""
+    # Order matters if there are FKs, though Message deletion should happen first
+    await db.execute(delete(ChatMember))
+    await db.execute(delete(Chat))
+    await db.commit()
+    return {"status": "success", "message": "All chats and members cleared"}
+
 async def clear_database(db: AsyncSession):
-    """Wipe all messages and files (Reset system state)."""
+    """Wipe all messages, files, and chats (Full system reset)."""
     await clear_all_messages(db)
     await clear_all_files(db)
-    # We keep users and chats, but could clear those too if needed. 
-    # For now, just messages and files as requested.
-    return {"status": "success", "message": "System state reset: all messages and files wiped"}
+    await clear_all_chats(db)
+    # We keep users, but clear their metadata if needed. 
+    return {"status": "success", "message": "System state reset: all messages, files, and chats wiped"}
