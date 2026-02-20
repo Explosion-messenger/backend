@@ -53,11 +53,19 @@ class ChatCreate(BaseModel):
 class ChatOut(BaseModel):
     id: int
     name: Optional[str] = None
+    avatar_path: Optional[str] = None
     is_group: bool = False
     created_at: datetime
     members: List[UserOut]
     last_message: Optional[MessageOut] = None
     model_config = ConfigDict(from_attributes=True)
+
+class ChatUpdate(BaseModel):
+    name: Optional[str] = None
+    avatar_path: Optional[str] = None
+
+class AddMember(BaseModel):
+    user_id: int
 
 class StatusResponse(BaseModel):
     status: str

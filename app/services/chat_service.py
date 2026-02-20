@@ -2,6 +2,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, joinedload
 from typing import List, Optional
+import os
+import shutil
+from ..config import settings
 from ..models import Chat, ChatMember, User, Message
 from ..schemas import ChatCreate, ChatOut
 from ..websockets import manager
@@ -57,6 +60,7 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
         out.append(ChatOut(
             id=chat.id,
             name=chat.name,
+            avatar_path=chat.avatar_path,
             is_group=chat.is_group,
             created_at=chat.created_at,
             members=members,
@@ -130,6 +134,7 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
     chat_out = ChatOut(
         id=chat.id,
         name=chat.name,
+        avatar_path=chat.avatar_path,
         is_group=chat.is_group,
         created_at=chat.created_at,
         members=[cm.user for cm in chat.members],
@@ -142,6 +147,7 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
         "data": {
             "id": chat_out.id,
             "name": chat_out.name,
+            "avatar_path": chat_out.avatar_path,
             "is_group": chat_out.is_group,
             "created_at": chat_out.created_at.isoformat(),
             "members": [
@@ -165,3 +171,166 @@ async def search_users(db: AsyncSession, query: str, exclude_user_id: int):
     stmt = select(User).where(User.username.ilike(f"%{safe_query}%")).where(User.id != exclude_user_id)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+async def update_chat(db: AsyncSession, chat_id: int, name: Optional[str], avatar_path: Optional[str], user_id: int):
+    # Check if user is member
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
+    result = await db.execute(stmt)
+    if not result.scalars().first():
+        return None
+    
+    stmt = select(Chat).where(Chat.id == chat_id)
+    result = await db.execute(stmt)
+    chat = result.scalars().first()
+    if not chat or not chat.is_group:
+        return None
+    
+    if name is not None:
+        chat.name = name
+    if avatar_path is not None:
+        chat.avatar_path = avatar_path
+    
+    await db.commit()
+    return await get_chat_out(db, chat_id)
+
+async def add_member(db: AsyncSession, chat_id: int, member_id: int, user_id: int):
+    # Check if user is member
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        return None
+    
+    # Check if already member
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == member_id)
+    res = await db.execute(stmt)
+    if res.scalars().first():
+        return await get_chat_out(db, chat_id)
+    
+    db.add(ChatMember(chat_id=chat_id, user_id=member_id))
+    await db.commit()
+    return await get_chat_out(db, chat_id)
+
+async def remove_member(db: AsyncSession, chat_id: int, member_id: int, user_id: int):
+    # Check if user is member (or admin, but for now any member can remove others? Or maybe user can only remove themselves? The request says "удаления участников")
+    # Let's allow any member to remove any member for simplicity, or we can restrict.
+    # Usually you'd want some admin logic.
+    
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        return None
+    
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == member_id)
+    res = await db.execute(stmt)
+    member = res.scalars().first()
+    if not member:
+        return await get_chat_out(db, chat_id)
+    
+    await db.delete(member)
+    await db.commit()
+    
+    # Check if any members left
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id)
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        # Delete chat if no members left
+        await delete_chat(db, chat_id, user_id)
+        return None
+
+    return await get_chat_out(db, chat_id)
+
+async def delete_chat(db: AsyncSession, chat_id: int, user_id: int):
+    # Check if user is member
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        return False
+    
+    stmt = select(Chat).where(Chat.id == chat_id)
+    res = await db.execute(stmt)
+    chat = res.scalars().first()
+    if not chat:
+        return False
+    
+    await db.delete(chat)
+    await db.commit()
+    return True
+
+async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
+    stmt = (
+        select(Chat)
+        .where(Chat.id == chat_id)
+        .options(
+            selectinload(Chat.members).joinedload(ChatMember.user)
+        )
+    )
+    result = await db.execute(stmt)
+    chat = result.unique().scalars().first()
+    if not chat:
+        return None
+    
+    # Get last message
+    stmt = select(Message).where(Message.chat_id == chat_id).order_by(Message.created_at.desc()).limit(1).options(joinedload(Message.sender))
+    res = await db.execute(stmt)
+    last_msg = res.scalars().first()
+    
+    chat_out = ChatOut(
+        id=chat.id,
+        name=chat.name,
+        avatar_path=chat.avatar_path,
+        is_group=chat.is_group,
+        created_at=chat.created_at,
+        members=[cm.user for cm in chat.members],
+        last_message=last_msg
+    )
+    
+    # Notify members of update
+    ws_msg = {
+        "type": "chat_updated",
+        "data": {
+            "id": chat_out.id,
+            "name": chat_out.name,
+            "avatar_path": chat_out.avatar_path,
+            "members": [
+                {"id": m.id, "username": m.username, "avatar_path": m.avatar_path} for m in chat_out.members
+            ]
+        }
+    }
+    member_ids = [m.id for m in chat_out.members]
+    await manager.broadcast_to_chat(ws_msg, member_ids)
+    
+    return chat_out
+
+async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename: str, user_id: int):
+    # Check if user is member
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
+    result = await db.execute(stmt)
+    if not result.scalars().first():
+        return None
+    
+    stmt = select(Chat).where(Chat.id == chat_id)
+    result = await db.execute(stmt)
+    chat = result.scalars().first()
+    if not chat or not chat.is_group:
+        return None
+    
+    import uuid
+    ext = os.path.splitext(filename)[1]
+    new_filename = f"chat_{chat_id}_{uuid.uuid4()}{ext}"
+    dest_path = os.path.join(settings.AVATAR_DIR, new_filename)
+    
+    with open(dest_path, "wb") as buffer:
+        shutil.copyfileobj(file, buffer)
+    
+    # Delete old avatar if exists
+    if chat.avatar_path:
+        old_path = os.path.join(settings.AVATAR_DIR, chat.avatar_path)
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except:
+                pass
+    
+    chat.avatar_path = new_filename
+    await db.commit()
+    return await get_chat_out(db, chat_id)

@@ -21,6 +21,7 @@ class Chat(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=True)
+    avatar_path = Column(String, nullable=True)
     is_group = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
