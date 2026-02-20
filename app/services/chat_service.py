@@ -316,3 +316,10 @@ async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename
     chat.avatar_path = new_filename
     await db.commit()
     return await get_chat_out(db, chat_id)
+
+async def get_chat_member_ids(db: AsyncSession, chat_id: int) -> List[int]:
+    from sqlalchemy import select
+    from ..models import ChatMember
+    stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
+    result = await db.execute(stmt)
+    return list(result.scalars().all())

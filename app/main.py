@@ -90,8 +90,33 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
         }, user_id)
 
         while True:
-            # We only receive messages for keep-alive or future features
-            await websocket.receive_text()
+            data = await websocket.receive_text()
+            try:
+                msg = json.loads(data)
+                if msg.get("type") == "typing":
+                    chat_id = msg.get("chat_id")
+                    is_typing = msg.get("is_typing", False)
+                    if chat_id:
+                        from .database import AsyncSessionLocal
+                        from .services import chat_service
+                        async with AsyncSessionLocal() as db:
+                            member_ids = await chat_service.get_chat_member_ids(db, chat_id)
+                            # Broadcast to others in the chat
+                            ws_msg = {
+                                "type": "typing",
+                                "data": {
+                                    "chat_id": chat_id,
+                                    "user_id": user_id,
+                                    "is_typing": is_typing
+                                }
+                            }
+                            # Send to all members except sender
+                            recipients = [m_id for m_id in member_ids if m_id != user_id]
+                            await manager.broadcast_to_chat(ws_msg, recipients)
+            except json.JSONDecodeError:
+                pass
+            except Exception as e:
+                logger.error(f"Error processing WS message: {e}")
     except WebSocketDisconnect:
         await manager.disconnect(user_id, websocket)
     except Exception as e:
