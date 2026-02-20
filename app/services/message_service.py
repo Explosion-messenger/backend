@@ -1,12 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 from typing import List, Optional
 import asyncio
 import os
 import logging
 from datetime import datetime, timedelta, timezone
-from ..models import Message, ChatMember, User, File
+from ..models import Message, ChatMember, User, File, MessageRead
 from ..schemas import MessageCreate
 from ..websockets import manager
 
@@ -17,18 +17,71 @@ async def get_messages(db: AsyncSession, chat_id: int, user_id: int, offset: int
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
     result = await db.execute(stmt)
     if not result.scalars().first():
-        return None  # Or raise exception, but service can return None and router raises 403
+        return None
 
     stmt = (
         select(Message)
         .where(Message.chat_id == chat_id)
-        .options(joinedload(Message.file), joinedload(Message.sender))
+        .options(
+            joinedload(Message.file), 
+            joinedload(Message.sender),
+            selectinload(Message.read_by)
+        )
         .order_by(Message.created_at.asc())
         .offset(offset)
         .limit(limit)
     )
     result = await db.execute(stmt)
-    return result.scalars().all()
+    return result.unique().scalars().all()
+
+async def mark_as_read(db: AsyncSession, message_id: int, user_id: int):
+    # Verify message exists and user has access to it
+    stmt = (
+        select(Message)
+        .join(ChatMember, ChatMember.chat_id == Message.chat_id)
+        .where(Message.id == message_id, ChatMember.user_id == user_id)
+    )
+    res = await db.execute(stmt)
+    message = res.scalars().first()
+    if not message:
+        return False
+
+    # Don't mark own messages as read (or maybe we do? standard is usually don't need to)
+    if message.sender_id == user_id:
+        return True
+
+    # Check if already read
+    stmt = select(MessageRead).where(MessageRead.message_id == message_id, MessageRead.user_id == user_id)
+    res = await db.execute(stmt)
+    if res.scalars().first():
+        return True
+
+    # Mark as read
+    db_read = MessageRead(message_id=message_id, user_id=user_id)
+    db.add(db_read)
+    
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"Failed to mark as read: {e}")
+        return True
+
+    # Notify via WS
+    stmt = select(ChatMember.user_id).where(ChatMember.chat_id == message.chat_id)
+    member_ids = (await db.execute(stmt)).scalars().all()
+    
+    ws_msg = {
+        "type": "message_read",
+        "data": {
+            "message_id": message_id,
+            "chat_id": message.chat_id,
+            "user_id": user_id,
+            "read_at": datetime.now(timezone.utc).isoformat()
+        }
+    }
+    await manager.broadcast_to_chat(ws_msg, list(member_ids))
+    return True
 
 async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int) -> Message:
     # 1. Artificial delay to ensure serialization and meet user request for business logic delay
@@ -75,7 +128,11 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
     stmt = (
         select(Message)
         .where(Message.id == message.id)
-        .options(joinedload(Message.file), joinedload(Message.sender))
+        .options(
+            joinedload(Message.file), 
+            joinedload(Message.sender),
+            selectinload(Message.read_by)
+        )
     )
     result = await db.execute(stmt)
     message = result.scalars().first()
@@ -103,7 +160,8 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
                 "mime_type": message.file.mime_type,
                 "size": message.file.size
             } if message.file else None,
-            "created_at": message.created_at.isoformat()
+            "created_at": message.created_at.isoformat(),
+            "read_by": []
         }
     }
     await manager.broadcast_to_chat(ws_msg, list(member_ids))

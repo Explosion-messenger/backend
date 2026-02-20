@@ -32,3 +32,10 @@ async def delete_message(message_id: int, current_user: User = Depends(get_curre
     if not success:
         raise HTTPException(status_code=404, detail="Message not found or you don't have permission")
     return {"status": "success"}
+
+@router.post("/messages/{message_id}/read")
+async def mark_as_read(message_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    success = await message_service.mark_as_read(db, message_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"status": "success"}

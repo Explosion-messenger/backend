@@ -54,6 +54,21 @@ class Message(Base):
     chat = relationship("Chat", back_populates="messages")
     sender = relationship("User", back_populates="messages")
     file = relationship("File", back_populates="message")
+    read_by = relationship("MessageRead", back_populates="message", cascade="all, delete-orphan")
+
+class MessageRead(Base):
+    __tablename__ = "message_reads"
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", name="uq_message_read_user"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+    read_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    message = relationship("Message", back_populates="read_by")
+    user = relationship("User")
 
 class File(Base):
     __tablename__ = "files"

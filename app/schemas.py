@@ -34,6 +34,11 @@ class MessageBase(BaseModel):
 class MessageCreate(MessageBase):
     chat_id: int
 
+class MessageReadOut(BaseModel):
+    user_id: int
+    read_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
 class MessageOut(BaseModel):
     id: int
     chat_id: int
@@ -42,6 +47,7 @@ class MessageOut(BaseModel):
     text: Optional[str] = None
     file: Optional[FileOut] = None
     created_at: datetime
+    read_by: List[MessageReadOut] = []
     model_config = ConfigDict(from_attributes=True)
 
 class ChatCreate(BaseModel):
