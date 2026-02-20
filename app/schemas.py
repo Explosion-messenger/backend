@@ -76,3 +76,6 @@ class AddMember(BaseModel):
 class StatusResponse(BaseModel):
     status: str
     message: Optional[str] = None
+
+class BulkDeleteRequest(BaseModel):
+    message_ids: List[int]
