@@ -34,6 +34,10 @@ class TwoFASetup(BaseModel):
 class TwoFAVerify(BaseModel):
     code: str
 
+class PasswordlessLogin(BaseModel):
+    username: str
+    code: str
+
 class LoginResponse(BaseModel):
     access_token: Optional[str] = None
     token_type: Optional[str] = None
