@@ -12,33 +12,28 @@ from ..config import settings
 
 async def register_user(db: AsyncSession, user_in: UserCreate) -> Optional[User]:
     from sqlalchemy.exc import IntegrityError
-    from .email_service import send_verification_email
-    from .otp_service import generate_email_otp
     
-    # Check if username or email exists
-    stmt = select(User).where((User.username == user_in.username) | (User.email == user_in.email))
+    # Check if username exists
+    stmt = select(User).where(User.username == user_in.username)
+    if user_in.email:
+        stmt = select(User).where((User.username == user_in.username) | (User.email == user_in.email))
+        
     result = await db.execute(stmt)
     if result.scalars().first():
         return None
     
     hashed_password = get_password_hash(user_in.password)
-    # Use otp_secret to store the temporary verification code
-    verification_code = generate_email_otp()
     
     user = User(
         username=user_in.username, 
         email=user_in.email,
         password_hash=hashed_password,
-        otp_secret=verification_code,
-        is_verified=False
+        is_verified=True  # No email verification needed
     )
     db.add(user)
     try:
         await db.commit()
         await db.refresh(user)
-        # Send email asynchronously
-        import asyncio
-        asyncio.create_task(send_verification_email(user.email, verification_code))
     except IntegrityError:
         await db.rollback()
         return None
@@ -62,15 +57,16 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> d
     user = result.scalars().first()
     
     if not user:
-        return {"user": None, "requires_2fa": False}
+        return {"user": None, "requires_2fa": False, "needs_2fa_setup": False}
         
     if not verify_password(password, user.password_hash):
-        return {"user": None, "requires_2fa": False}
+        return {"user": None, "requires_2fa": False, "needs_2fa_setup": False}
 
     if user.is_2fa_enabled:
-        return {"user": user, "requires_2fa": True}
+        return {"user": user, "requires_2fa": True, "needs_2fa_setup": False}
         
-    return {"user": user, "requires_2fa": False}
+    # Mandatory 2FA: if not enabled, user must set it up
+    return {"user": user, "requires_2fa": False, "needs_2fa_setup": True}
 
 async def verify_passwordless_2fa(db: AsyncSession, username: str, code: str) -> Optional[User]:
     from .otp_service import verify_2fa_code

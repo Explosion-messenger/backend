@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File as FastAPIFile
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from ..database import get_db
 from ..models import User
 from ..schemas import UserCreate, UserOut, Token, EmailVerification, LoginResponse, TwoFASetup, TwoFAVerify
@@ -17,12 +18,6 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Username or Email already registered")
     return user
 
-@router.post("/verify-email")
-async def verify_email(data: EmailVerification, db: AsyncSession = Depends(get_db)):
-    success = await user_service.verify_user_email(db, data.username, data.code)
-    if not success:
-        raise HTTPException(status_code=400, detail="Invalid verification code")
-    return {"status": "success"}
 
 @router.post("/login", response_model=LoginResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
@@ -35,11 +30,16 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
             headers={"WWW-Authenticate": "Bearer"},
         )
         
-    if not user.is_verified:
-        raise HTTPException(status_code=403, detail="Email not verified")
-        
     if result["requires_2fa"]:
         return LoginResponse(requires_2fa=True, username=user.username)
+        
+    if result["needs_2fa_setup"]:
+        from ..services.otp_service import generate_2fa_secret, get_2fa_uri
+        secret = generate_2fa_secret()
+        uri = get_2fa_uri(user.username, secret)
+        user.otp_secret = secret
+        await db.commit()
+        return LoginResponse(needs_2fa_setup=True, username=user.username, otp_auth_url=uri, secret=secret)
         
     token_data = user_service.create_user_token(user)
     return LoginResponse(
@@ -51,17 +51,27 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
 
 @router.post("/login/2fa", response_model=LoginResponse)
 async def login_2fa(data: TwoFAVerify, username: str, db: AsyncSession = Depends(get_db)):
-    user = await user_service.verify_passwordless_2fa(db, username, data.code)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid 2FA code")
+    from ..services.otp_service import verify_2fa_code
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
+    
+    if not user or not user.otp_secret:
+        raise HTTPException(status_code=401, detail="Invalid session or 2FA not initiated")
         
-    token_data = user_service.create_user_token(user)
-    return LoginResponse(
-        access_token=token_data["access_token"],
-        token_type=token_data["token_type"],
-        requires_2fa=False,
-        username=user.username
-    )
+    if verify_2fa_code(user.otp_secret, data.code):
+        if not user.is_2fa_enabled:
+            user.is_2fa_enabled = True
+            await db.commit()
+            
+        token_data = user_service.create_user_token(user)
+        return LoginResponse(
+            access_token=token_data["access_token"],
+            token_type=token_data["token_type"],
+            requires_2fa=False,
+            username=user.username
+        )
+    else:
+        raise HTTPException(status_code=401, detail="Invalid 2FA code")
 
 @router.get("/2fa/setup", response_model=TwoFASetup)
 async def setup_2fa(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):

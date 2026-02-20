@@ -6,7 +6,7 @@ class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50, description="Unique username")
 
 class UserCreate(UserBase):
-    email: str = Field(..., description="User email")
+    email: Optional[str] = Field(None, description="User email (optional)")
     password: str = Field(..., min_length=6, max_length=100, description="User password")
 
 class UserOut(UserBase):
@@ -34,6 +34,9 @@ class LoginResponse(BaseModel):
     access_token: Optional[str] = None
     token_type: Optional[str] = None
     requires_2fa: bool = False
+    needs_2fa_setup: bool = False
+    otp_auth_url: Optional[str] = None
+    secret: Optional[str] = None
     username: Optional[str] = None
 
 class Token(BaseModel):
