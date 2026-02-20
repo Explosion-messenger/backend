@@ -219,6 +219,9 @@ async def delete_chat(db: AsyncSession, chat_id: int, user_id: int):
     if not res.scalars().first():
         return False
     
+    # Get members before deletion
+    member_ids = await get_chat_member_ids(db, chat_id)
+    
     stmt = select(Chat).where(Chat.id == chat_id)
     res = await db.execute(stmt)
     chat = res.scalars().first()
@@ -227,6 +230,15 @@ async def delete_chat(db: AsyncSession, chat_id: int, user_id: int):
     
     await db.delete(chat)
     await db.commit()
+    
+    # Broadcast deletion
+    if member_ids:
+        ws_msg = {
+            "type": "chat_deleted",
+            "data": {"chat_id": chat_id}
+        }
+        await manager.broadcast_to_chat(ws_msg, member_ids)
+        
     return True
 
 async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
