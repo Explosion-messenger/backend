@@ -7,10 +7,11 @@ import logging
 from jose import jwt, JWTError
 
 from .config import settings
-from .database import engine, Base
+from .database import engine, Base, AsyncSessionLocal
 from .websockets import manager
 from .auth import SECRET_KEY, ALGORITHM, get_current_user
 from .routers import auth, chats, messages, files, admin
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -97,22 +98,32 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                     chat_id = msg.get("chat_id")
                     is_typing = msg.get("is_typing", False)
                     if chat_id:
-                        from .database import AsyncSessionLocal
-                        from .services import chat_service
-                        async with AsyncSessionLocal() as db:
-                            member_ids = await chat_service.get_chat_member_ids(db, chat_id)
-                            # Broadcast to others in the chat
-                            ws_msg = {
-                                "type": "typing",
-                                "data": {
-                                    "chat_id": chat_id,
-                                    "user_id": user_id,
-                                    "is_typing": is_typing
-                                }
-                            }
-                            # Send to all members except sender
-                            recipients = [m_id for m_id in member_ids if m_id != user_id]
-                            await manager.broadcast_to_chat(ws_msg, recipients)
+                        try:
+                            from .services.chat_service import get_chat_member_ids
+                            from .models import User as DBUser
+                            from sqlalchemy import select
+                            async with AsyncSessionLocal() as db:
+                                # Get members and typing user's name
+                                member_ids_task = get_chat_member_ids(db, chat_id)
+                                user_name_stmt = select(DBUser.username).where(DBUser.id == user_id)
+                                user_name_result = await db.execute(user_name_stmt)
+                                user_name = user_name_result.scalar()
+                                member_ids = await member_ids_task
+
+                                if user_name:
+                                    ws_msg = {
+                                        "type": "typing",
+                                        "data": {
+                                            "chat_id": chat_id,
+                                            "user_id": user_id,
+                                            "username": user_name,
+                                            "is_typing": is_typing
+                                        }
+                                    }
+                                    recipients = [m_id for m_id in member_ids if m_id != user_id]
+                                    await manager.broadcast_to_chat(ws_msg, recipients)
+                        except Exception as inner_e:
+                            logger.error(f"Typing broadcast failure for user {user_id} in chat {chat_id}: {inner_e}")
             except json.JSONDecodeError:
                 pass
             except Exception as e:
