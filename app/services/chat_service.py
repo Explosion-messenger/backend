@@ -75,16 +75,16 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
         if not payload.member_ids:
             return None
         
-        chat = Chat(name=payload.name, is_group=True)
-        db.add(chat)
+        new_chat = Chat(name=payload.name, is_group=True)
+        db.add(new_chat)
         await db.flush()
-        chat_id = chat.id
+        chat_id = new_chat.id
         
         member_ids = set(payload.member_ids)
         member_ids.add(creator_id)
         
         for m_id in member_ids:
-            db.add(ChatMember(chat_id=chat.id, user_id=m_id))
+            db.add(ChatMember(chat_id=chat_id, user_id=m_id))
         
         await db.commit()
     else:
@@ -107,61 +107,30 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
         if found_chat_id:
             chat_id = found_chat_id
         else:
-            chat = Chat(is_group=False)
-            db.add(chat)
+            new_chat = Chat(is_group=False)
+            db.add(new_chat)
             await db.flush()
-            chat_id = chat.id
-            db.add(ChatMember(chat_id=chat.id, user_id=creator_id))
-            db.add(ChatMember(chat_id=chat.id, user_id=payload.recipient_id))
+            chat_id = new_chat.id
+            db.add(ChatMember(chat_id=chat_id, user_id=creator_id))
+            db.add(ChatMember(chat_id=chat_id, user_id=payload.recipient_id))
             await db.commit()
 
-    # Refetch
-    stmt = (
-        select(Chat)
-        .where(Chat.id == chat_id)
-        .options(
-            selectinload(Chat.members).joinedload(ChatMember.user),
-            selectinload(Chat.messages).options(joinedload(Message.sender))
-        )
-    )
-    result = await db.execute(stmt)
-    chat = result.unique().scalars().first()
+    if not chat_id:
+        return None
+
+    # Use the helper to get ChatOut and notify via WS
+    chat_out = await get_chat_out(db, chat_id)
     
-    last_msg = None
-    if chat.messages:
-        last_msg = sorted(chat.messages, key=lambda x: x.created_at, reverse=True)[0]
-
-    chat_out = ChatOut(
-        id=chat.id,
-        name=chat.name,
-        avatar_path=chat.avatar_path,
-        is_group=chat.is_group,
-        created_at=chat.created_at,
-        members=[cm.user for cm in chat.members],
-        last_message=last_msg
-    )
-
-    # Notify via WebSocket
-    ws_msg = {
-        "type": "new_chat",
-        "data": {
-            "id": chat_out.id,
-            "name": chat_out.name,
-            "avatar_path": chat_out.avatar_path,
-            "is_group": chat_out.is_group,
-            "created_at": chat_out.created_at.isoformat(),
-            "members": [
-                {
-                    "id": m.id,
-                    "username": m.username,
-                    "avatar_path": m.avatar_path
-                } for m in chat_out.members
-            ],
-            "last_message": None
+    # Send a specialized "new_chat" WS message if needed, 
+    # though get_chat_out already sends "chat_updated".
+    # But usually for new chats we want a specific type.
+    if chat_out:
+        ws_msg = {
+            "type": "new_chat",
+            "data": chat_out.model_dump(mode='json')
         }
-    }
-    member_ids = [m.id for m in chat_out.members]
-    await manager.broadcast_to_chat(ws_msg, member_ids)
+        member_ids = [m.id for m in chat_out.members]
+        await manager.broadcast_to_chat(ws_msg, member_ids)
 
     return chat_out
 
