@@ -205,3 +205,49 @@ async def delete_message(db: AsyncSession, message_id: int, user_id: int) -> boo
     }
     await manager.broadcast_to_chat(ws_msg, list(member_ids))
     return True
+
+async def delete_messages(db: AsyncSession, message_ids: List[int], user_id: int) -> bool:
+    stmt = (
+        select(Message)
+        .where(Message.id.in_(message_ids), Message.sender_id == user_id)
+        .options(joinedload(Message.file))
+    )
+    result = await db.execute(stmt)
+    messages = result.scalars().all()
+    
+    if not messages:
+        return False
+    
+    chat_id_to_members = {}
+    
+    for message in messages:
+        cid = message.chat_id
+        if cid not in chat_id_to_members:
+            stmt = select(ChatMember.user_id).where(ChatMember.chat_id == cid)
+            chat_id_to_members[cid] = (await db.execute(stmt)).scalars().all()
+            
+        if message.file:
+            file_path = os.path.join("uploads", message.file.path)
+            if os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception as e:
+                    logger.error(f"Failed to delete file {file_path}: {e}")
+            await db.delete(message.file)
+        
+        await db.delete(message)
+    
+    await db.commit()
+    
+    # Broadcast deletions
+    for message in messages:
+        ws_msg = {
+            "type": "delete_message",
+            "data": {
+                "message_id": message.id,
+                "chat_id": message.chat_id
+            }
+        }
+        await manager.broadcast_to_chat(ws_msg, list(chat_id_to_members[message.chat_id]))
+        
+    return True
