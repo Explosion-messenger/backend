@@ -33,7 +33,7 @@ async def delete_message(message_id: int, current_user: User = Depends(get_curre
         raise HTTPException(status_code=404, detail="Message not found or you don't have permission")
     return {"status": "success"}
 
-@router.delete("/messages/bulk")
+@router.post("/messages/bulk/delete")
 async def delete_messages_bulk(payload: BulkDeleteRequest, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     success = await message_service.delete_messages(db, payload.message_ids, current_user.id)
     if not success:
