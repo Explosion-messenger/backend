@@ -68,20 +68,63 @@ async def mark_as_read(db: AsyncSession, message_id: int, user_id: int):
         logger.error(f"Failed to mark as read: {e}")
         return True
 
-    # Notify via WS
-    stmt = select(ChatMember.user_id).where(ChatMember.chat_id == message.chat_id)
-    member_ids = (await db.execute(stmt)).scalars().all()
-    
-    ws_msg = {
-        "type": "message_read",
-        "data": {
-            "message_id": message_id,
-            "chat_id": message.chat_id,
-            "user_id": user_id,
-            "read_at": datetime.now(timezone.utc).isoformat()
-        }
-    }
     await manager.broadcast_to_chat(ws_msg, list(member_ids))
+    return True
+
+async def mark_all_as_read(db: AsyncSession, chat_id: int, user_id: int):
+    # Verify user is in chat
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
+    res = await db.execute(stmt)
+    if not res.scalars().first():
+        return False
+
+    # Find unread messages for this user in this chat
+    from sqlalchemy import and_, not_
+    unread_stmt = (
+        select(Message.id)
+        .where(
+            Message.chat_id == chat_id,
+            Message.sender_id != user_id
+        )
+        .where(
+            not_(
+                select(MessageRead.id)
+                .where(MessageRead.message_id == Message.id, MessageRead.user_id == user_id)
+                .exists()
+            )
+        )
+    )
+    unread_ids = (await db.execute(unread_stmt)).scalars().all()
+    
+    if not unread_ids:
+        return True
+
+    # Mark all as read
+    for msg_id in unread_ids:
+        db.add(MessageRead(message_id=msg_id, user_id=user_id))
+    
+    await db.commit()
+
+    # Notify members via WS for each read message
+    # To avoid flood, we could send a single bulk_read event, 
+    # but the current frontend expects message_read.
+    # We'll batch them and send.
+    read_at = datetime.now(timezone.utc).isoformat()
+    stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
+    member_ids = list((await db.execute(stmt)).scalars().all())
+
+    for msg_id in unread_ids:
+        ws_msg = {
+            "type": "message_read",
+            "data": {
+                "message_id": msg_id,
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "read_at": read_at
+            }
+        }
+        await manager.broadcast_to_chat(ws_msg, member_ids)
+
     return True
 
 async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int) -> Message:

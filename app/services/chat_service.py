@@ -182,7 +182,18 @@ async def add_member(db: AsyncSession, chat_id: int, member_id: int, user_id: in
     
     db.add(ChatMember(chat_id=chat_id, user_id=member_id))
     await db.commit()
-    return await get_chat_out(db, chat_id)
+    
+    chat_out = await get_chat_out(db, chat_id)
+    
+    # Notify ONLY the new member with "new_chat"
+    if chat_out:
+        ws_msg = {
+            "type": "new_chat",
+            "data": chat_out.model_dump(mode='json')
+        }
+        await manager.broadcast_to_chat(ws_msg, [member_id])
+        
+    return chat_out
 
 async def remove_member(db: AsyncSession, chat_id: int, member_id: int, user_id: int):
     # Check if user is member (or admin, but for now any member can remove others? Or maybe user can only remove themselves? The request says "удаления участников")
@@ -202,6 +213,13 @@ async def remove_member(db: AsyncSession, chat_id: int, member_id: int, user_id:
     
     await db.delete(member)
     await db.commit()
+    
+    # Notify the removed member that they are no longer in this chat
+    ws_msg = {
+        "type": "chat_deleted",
+        "data": {"chat_id": chat_id}
+    }
+    await manager.broadcast_to_chat(ws_msg, [member_id])
     
     # Check if any members left
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id)

@@ -44,8 +44,15 @@ async def delete_messages_bulk(payload: BulkDeleteRequest, current_user: User = 
 async def mark_as_read(message_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     success = await message_service.mark_as_read(db, message_id, current_user.id)
     if not success:
-        raise HTTPException(status_code=404, detail="Message not found")
-    return {"status": "success"}
+        raise HTTPException(status_code=403, detail="Forbidden or message not found")
+    return {"status": "ok"}
+
+@router.post("/chats/{chat_id}/read")
+async def mark_chat_as_read(chat_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    success = await message_service.mark_all_as_read(db, chat_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=403, detail="Forbidden or chat not found")
+    return {"status": "ok"}
 
 from ..schemas import ReactionToggle
 from ..services import reaction_service
