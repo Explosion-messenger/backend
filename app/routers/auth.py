@@ -6,6 +6,7 @@ from ..models import User
 from ..schemas import UserCreate, UserOut, Token
 from ..auth import get_current_user, get_current_admin_user
 from ..services import user_service
+from ..websockets import manager
 
 router = APIRouter()
 
@@ -38,6 +39,7 @@ async def upload_avatar(
     db: AsyncSession = Depends(get_db)
 ):
     user = await user_service.update_user_avatar(db, current_user, file.file, file.filename)
+    await manager.broadcast_user_update(user.id, user.username, user.avatar_path)
     return user
 
 @router.delete("/me/avatar", response_model=UserOut)
@@ -45,5 +47,7 @@ async def delete_avatar(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    return await user_service.delete_user_avatar(db, current_user)
+    user = await user_service.delete_user_avatar(db, current_user)
+    await manager.broadcast_user_update(user.id, user.username, None)
+    return user
 

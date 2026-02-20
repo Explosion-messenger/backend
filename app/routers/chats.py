@@ -48,8 +48,20 @@ async def remove_member(chat_id: int, member_id: int, current_user: User = Depen
 
 @router.delete("/chats/{chat_id}")
 async def delete_chat(chat_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # This deletes the entire chat history for everyone (Private chats only usually)
     success = await chat_service.delete_chat(db, chat_id, current_user.id)
     if not success:
+        raise HTTPException(status_code=403, detail="Forbidden or chat not found")
+    return {"status": "ok"}
+
+@router.post("/chats/{chat_id}/leave")
+async def leave_chat(chat_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    # This just removes the current user from the chat
+    success = await chat_service.remove_member(db, chat_id, current_user.id, current_user.id)
+    if success is None and not await chat_service.is_chat_member(db, chat_id, current_user.id):
+        # Chat might have been deleted because it was the last member
+        return {"status": "ok", "message": "Left chat"}
+    if success is None:
         raise HTTPException(status_code=403, detail="Forbidden or chat not found")
     return {"status": "ok"}
 

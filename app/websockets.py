@@ -58,6 +58,18 @@ class ConnectionManager:
             if other_user_id != user_id:
                 await self.send_personal_message(status_msg, other_user_id)
 
+    async def broadcast_user_update(self, user_id: int, username: str, avatar_path: str = None):
+        update_msg = {
+            "type": "user_updated",
+            "data": {
+                "id": user_id,
+                "username": username,
+                "avatar_path": avatar_path
+            }
+        }
+        for other_user_id in list(self.active_connections.keys()):
+            await self.send_personal_message(update_msg, other_user_id)
+
     def get_online_users(self) -> Dict[int, str]:
         return self.user_statuses
 

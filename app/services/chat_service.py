@@ -335,3 +335,8 @@ async def get_chat_member_ids(db: AsyncSession, chat_id: int) -> List[int]:
     stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
     result = await db.execute(stmt)
     return list(result.scalars().all())
+
+async def is_chat_member(db: AsyncSession, chat_id: int, user_id: int) -> bool:
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
+    result = await db.execute(stmt)
+    return result.scalars().first() is not None
