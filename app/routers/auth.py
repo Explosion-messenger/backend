@@ -11,11 +11,29 @@ from ..websockets import manager
 
 router = APIRouter()
 
-@router.post("/register", response_model=UserOut)
-async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
-    user = await user_service.register_user(db, user_in)
-    if not user:
+@router.post("/register/setup", response_model=TwoFASetup)
+async def register_setup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Check if user exists
+    if await user_service.check_user_exists(db, user_in.username, user_in.email):
         raise HTTPException(status_code=400, detail="Username or Email already registered")
+        
+    from ..services.otp_service import generate_2fa_secret, get_2fa_uri
+    secret = generate_2fa_secret()
+    uri = get_2fa_uri(user_in.username, secret)
+    return TwoFASetup(otp_auth_url=uri, secret=secret)
+
+@router.post("/register/confirm", response_model=UserOut)
+async def register_confirm(data: UserRegisterConfirm, db: AsyncSession = Depends(get_db)):
+    from ..services.otp_service import verify_2fa_code
+    
+    # 1. Verify 2FA code before creating anything
+    if not verify_2fa_code(data.secret, data.code):
+        raise HTTPException(status_code=400, detail="Invalid 2FA code")
+        
+    # 2. Final check and create user
+    user = await user_service.register_user(db, data, data.secret)
+    if not user:
+        raise HTTPException(status_code=400, detail="Registration failed (user might have been created by someone else meanwhile)")
     return user
 
 
@@ -32,14 +50,6 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
         
     if result["requires_2fa"]:
         return LoginResponse(requires_2fa=True, username=user.username)
-        
-    if result["needs_2fa_setup"]:
-        from ..services.otp_service import generate_2fa_secret, get_2fa_uri
-        secret = generate_2fa_secret()
-        uri = get_2fa_uri(user.username, secret)
-        user.otp_secret = secret
-        await db.commit()
-        return LoginResponse(needs_2fa_setup=True, username=user.username, otp_auth_url=uri, secret=secret)
         
     token_data = user_service.create_user_token(user)
     return LoginResponse(

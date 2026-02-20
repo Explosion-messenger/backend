@@ -9,6 +9,10 @@ class UserCreate(UserBase):
     email: Optional[str] = Field(None, description="User email (optional)")
     password: str = Field(..., min_length=6, max_length=100, description="User password")
 
+class UserRegisterConfirm(UserCreate):
+    secret: str = Field(..., description="The 2FA secret generated in setup step")
+    code: str = Field(..., description="The verification code from the authenticator app")
+
 class UserOut(UserBase):
     id: int
     email: Optional[str] = None
@@ -34,9 +38,6 @@ class LoginResponse(BaseModel):
     access_token: Optional[str] = None
     token_type: Optional[str] = None
     requires_2fa: bool = False
-    needs_2fa_setup: bool = False
-    otp_auth_url: Optional[str] = None
-    secret: Optional[str] = None
     username: Optional[str] = None
 
 class Token(BaseModel):
