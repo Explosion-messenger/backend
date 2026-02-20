@@ -39,6 +39,13 @@ class MessageReadOut(BaseModel):
     read_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+class MessageReactionOut(BaseModel):
+    id: int
+    user_id: int
+    emoji: str
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
 class MessageOut(BaseModel):
     id: int
     chat_id: int
@@ -48,7 +55,11 @@ class MessageOut(BaseModel):
     file: Optional[FileOut] = None
     created_at: datetime
     read_by: List[MessageReadOut] = []
+    reactions: List[MessageReactionOut] = []
     model_config = ConfigDict(from_attributes=True)
+
+class ReactionToggle(BaseModel):
+    emoji: str
 
 class ChatCreate(BaseModel):
     recipient_id: Optional[int] = Field(None, description="For private chats")

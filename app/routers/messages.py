@@ -46,3 +46,18 @@ async def mark_as_read(message_id: int, current_user: User = Depends(get_current
     if not success:
         raise HTTPException(status_code=404, detail="Message not found")
     return {"status": "success"}
+
+from ..schemas import ReactionToggle
+from ..services import reaction_service
+
+@router.post("/messages/{message_id}/reactions")
+async def toggle_reaction(
+    message_id: int, 
+    payload: ReactionToggle, 
+    current_user: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db)
+):
+    result = await reaction_service.toggle_reaction(db, message_id, current_user.id, payload.emoji)
+    if not result:
+        raise HTTPException(status_code=403, detail="Forbidden or message not found")
+    return result

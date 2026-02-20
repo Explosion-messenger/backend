@@ -55,6 +55,7 @@ class Message(Base):
     sender = relationship("User", back_populates="messages")
     file = relationship("File", back_populates="message")
     read_by = relationship("MessageRead", back_populates="message", cascade="all, delete-orphan")
+    reactions = relationship("MessageReaction", back_populates="message", cascade="all, delete-orphan")
 
 class MessageRead(Base):
     __tablename__ = "message_reads"
@@ -68,6 +69,21 @@ class MessageRead(Base):
     read_at = Column(DateTime(timezone=True), server_default=func.now())
 
     message = relationship("Message", back_populates="read_by")
+    user = relationship("User")
+
+class MessageReaction(Base):
+    __tablename__ = "message_reactions"
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", "emoji", name="uq_message_reaction_user_emoji"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(Integer, ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    emoji = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    message = relationship("Message", back_populates="reactions")
     user = relationship("User")
 
 class File(Base):

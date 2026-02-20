@@ -25,7 +25,8 @@ async def get_messages(db: AsyncSession, chat_id: int, user_id: int, offset: int
         .options(
             joinedload(Message.file), 
             joinedload(Message.sender),
-            selectinload(Message.read_by)
+            selectinload(Message.read_by),
+            selectinload(Message.reactions)
         )
         .order_by(Message.created_at.asc())
         .offset(offset)
@@ -131,7 +132,8 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
         .options(
             joinedload(Message.file), 
             joinedload(Message.sender),
-            selectinload(Message.read_by)
+            selectinload(Message.read_by),
+            selectinload(Message.reactions)
         )
     )
     result = await db.execute(stmt)
@@ -161,7 +163,8 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
                 "size": message.file.size
             } if message.file else None,
             "created_at": message.created_at.isoformat(),
-            "read_by": []
+            "read_by": [],
+            "reactions": []
         }
     }
     await manager.broadcast_to_chat(ws_msg, list(member_ids))

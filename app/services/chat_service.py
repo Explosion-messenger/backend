@@ -49,7 +49,8 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
                 .options(
                     joinedload(Message.sender), 
                     joinedload(Message.file),
-                    selectinload(Message.read_by)
+                    selectinload(Message.read_by),
+                    selectinload(Message.reactions)
                 )
             )
             msgs_result = await db.execute(msgs_stmt)
@@ -262,7 +263,8 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
         .limit(1)
         .options(
             joinedload(Message.sender),
-            selectinload(Message.read_by)
+            selectinload(Message.read_by),
+            selectinload(Message.reactions)
         )
     )
     res = await db.execute(stmt)
