@@ -46,7 +46,11 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
             msgs_stmt = (
                 select(Message)
                 .where(Message.id.in_(msg_id_map.values()))
-                .options(joinedload(Message.sender), joinedload(Message.file))
+                .options(
+                    joinedload(Message.sender), 
+                    joinedload(Message.file),
+                    selectinload(Message.read_by)
+                )
             )
             msgs_result = await db.execute(msgs_stmt)
             for msg in msgs_result.unique().scalars().all():
@@ -239,7 +243,16 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
         return None
     
     # Get last message
-    stmt = select(Message).where(Message.chat_id == chat_id).order_by(Message.created_at.desc()).limit(1).options(joinedload(Message.sender))
+    stmt = (
+        select(Message)
+        .where(Message.chat_id == chat_id)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+        .options(
+            joinedload(Message.sender),
+            selectinload(Message.read_by)
+        )
+    )
     res = await db.execute(stmt)
     last_msg = res.scalars().first()
     
