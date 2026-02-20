@@ -16,17 +16,23 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
-    op.create_table('message_reads',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('message_id', sa.Integer(), nullable=True),
-    sa.Column('user_id', sa.Integer(), nullable=True),
-    sa.Column('read_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
-    sa.ForeignKeyConstraint(['message_id'], ['messages.id'], ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('message_id', 'user_id', name='uq_message_read_user')
-    )
-    op.create_index(op.f('ix_message_reads_id'), 'message_reads', ['id'], unique=False)
+    # Check if table already exists to handle partial deployment failures
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    tables = inspector.get_table_names()
+    
+    if 'message_reads' not in tables:
+        op.create_table('message_reads',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('message_id', sa.Integer(), nullable=True),
+        sa.Column('user_id', sa.Integer(), nullable=True),
+        sa.Column('read_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=True),
+        sa.ForeignKeyConstraint(['message_id'], ['messages.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('message_id', 'user_id', name='uq_message_read_user')
+        )
+        op.create_index(op.f('ix_message_reads_id'), 'message_reads', ['id'], unique=False)
 
 def downgrade() -> None:
     op.drop_index(op.f('ix_message_reads_id'), table_name='message_reads')
