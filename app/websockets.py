@@ -94,4 +94,42 @@ class ConnectionManager:
         for user_id in member_ids:
             await self.send_personal_message(message, user_id)
 
+    async def handle_message(self, user_id: int, msg: dict):
+        msg_type = msg.get("type")
+        if msg_type == "typing":
+            chat_id = msg.get("chat_id")
+            is_typing = msg.get("is_typing", False)
+            if chat_id:
+                try:
+                    from .services.chat_service import get_chat_member_ids
+                    from .models import User as DBUser
+                    from sqlalchemy import select
+                    from .database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as db:
+                        member_ids_task = get_chat_member_ids(db, chat_id)
+                        user_name_stmt = select(DBUser.username).where(DBUser.id == user_id)
+                        user_name_result = await db.execute(user_name_stmt)
+                        user_name = user_name_result.scalar()
+                        member_ids = await member_ids_task
+
+                        if user_name:
+                            ws_msg = {
+                                "type": "typing",
+                                "data": {
+                                    "chat_id": chat_id,
+                                    "user_id": user_id,
+                                    "username": user_name,
+                                    "is_typing": is_typing
+                                }
+                            }
+                            recipients = [m_id for m_id in member_ids if m_id != user_id]
+                            await self.broadcast_to_chat(ws_msg, recipients)
+                except Exception as e:
+                    logger.error(f"Typing broadcast failure: {e}")
+        
+        elif msg_type == "user_status_update":
+            new_status = msg.get("status")
+            if new_status:
+                await self.update_user_status(user_id, new_status)
+
 manager = ConnectionManager()

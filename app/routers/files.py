@@ -17,7 +17,6 @@ async def upload_file(file: UploadFile = FastAPIFile(...), current_user = Depend
 @router.get("/files/download/{file_path:path}")
 async def download_file(
     file_path: str,
-    token: Optional[str] = None,
     current_user = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):

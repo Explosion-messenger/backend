@@ -5,7 +5,7 @@ from ..models import User
 from ..auth import verify_admin_access
 from ..services import admin_service, user_service
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(tags=["admin"])
 
 @router.get("/status")
 async def get_status(authorized: bool = Depends(verify_admin_access)):

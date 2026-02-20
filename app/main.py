@@ -52,19 +52,20 @@ for directory in [settings.UPLOAD_DIR, settings.AVATAR_DIR]:
 # Avatars remain public for now, but uploads are protected via authenticated endpoint in files.py
 app.mount("/avatars", StaticFiles(directory=settings.AVATAR_DIR), name="avatars")
 
-# Include routers
-app.include_router(auth.router, tags=["auth"])
-app.include_router(chats.router, tags=["chats"])
-app.include_router(messages.router, tags=["messages"])
-app.include_router(files.router, tags=["files"])
-app.include_router(admin.router, tags=["admin"])
+# Include routers with version prefix
+app.include_router(auth.router, prefix=settings.API_V1_STR, tags=["auth"])
+app.include_router(chats.router, prefix=settings.API_V1_STR, tags=["chats"])
+app.include_router(messages.router, prefix=settings.API_V1_STR, tags=["messages"])
+app.include_router(files.router, prefix=settings.API_V1_STR, tags=["files"])
+app.include_router(admin.router, prefix=settings.API_V1_STR + "/admin", tags=["admin"])
 
 @app.get("/")
 async def root():
     return {
         "app": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "status": "running"
+        "status": "running",
+        "docs": "/docs"
     }
 
 @app.websocket("/ws")
@@ -94,40 +95,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
-                if msg.get("type") == "typing":
-                    chat_id = msg.get("chat_id")
-                    is_typing = msg.get("is_typing", False)
-                    if chat_id:
-                        try:
-                            from .services.chat_service import get_chat_member_ids
-                            from .models import User as DBUser
-                            from sqlalchemy import select
-                            async with AsyncSessionLocal() as db:
-                                # Get members and typing user's name
-                                member_ids_task = get_chat_member_ids(db, chat_id)
-                                user_name_stmt = select(DBUser.username).where(DBUser.id == user_id)
-                                user_name_result = await db.execute(user_name_stmt)
-                                user_name = user_name_result.scalar()
-                                member_ids = await member_ids_task
-
-                                if user_name:
-                                    ws_msg = {
-                                        "type": "typing",
-                                        "data": {
-                                            "chat_id": chat_id,
-                                            "user_id": user_id,
-                                            "username": user_name,
-                                            "is_typing": is_typing
-                                        }
-                                    }
-                                    recipients = [m_id for m_id in member_ids if m_id != user_id]
-                                    await manager.broadcast_to_chat(ws_msg, recipients)
-                        except Exception as inner_e:
-                            logger.error(f"Typing broadcast failure for user {user_id} in chat {chat_id}: {inner_e}")
-                elif msg.get("type") == "user_status_update":
-                    new_status = msg.get("status")
-                    if new_status:
-                        await manager.update_user_status(user_id, new_status)
+                await manager.handle_message(user_id, msg)
             except json.JSONDecodeError:
                 pass
             except Exception as e:
@@ -137,3 +105,4 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
     except Exception as e:
         logger.error(f"WS error: {str(e)}")
         await manager.disconnect(user_id, websocket)
+

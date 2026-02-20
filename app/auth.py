@@ -2,7 +2,7 @@ import bcrypt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import JWTError, jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -14,7 +14,8 @@ SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = settings.ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+# We set auto_error=False to manually handle the case where token might be in query param
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 
 def verify_password(plain_password: str, hashed_password: str):
     try:
@@ -37,7 +38,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme), 
-    token_query: Optional[str] = None,
+    token_query: Optional[str] = Query(None, alias="token"),
     db: AsyncSession = Depends(get_db)
 ):
     credentials_exception = HTTPException(

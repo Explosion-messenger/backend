@@ -5,10 +5,11 @@ class Settings(BaseSettings):
     # App Settings
     PROJECT_NAME: str = "Messenger API"
     VERSION: str = "1.0.0"
-    API_V1_STR: str = "/api"
+    API_V1_STR: str = "/api/v1"
     
     # Security
-    SECRET_KEY: str = "DEVELOPMENT_MODE_INSECURE_KEY"
+    # In production, ALWAYS set SECRET_KEY in .env
+    SECRET_KEY: str = "temporary_secret_key_for_dev_only_change_in_production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 1 week
     
@@ -16,10 +17,11 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost:5432/messenger"
     
     # Admin Access
-    ADMIN_PASSWORD: str = "change_me_immediately"  # Override via ADMIN_PASSWORD env var in production!
+    # In production, ALWAYS set ADMIN_PASSWORD in .env
+    ADMIN_PASSWORD: str = "admin_change_this"
     
     # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:5174", "http://localhost:3000"]
+    CORS_ORIGINS: List[str] = ["*"]  # For mobile/dev simplicity, allowing all. Restrict in production via Nginx/Caddy.
     
     # File Storage
     UPLOAD_DIR: str = "uploads"
@@ -27,6 +29,6 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB
     ALLOWED_EXTENSIONS: List[str] = [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".txt", ".doc", ".docx", ".zip"]
     
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True)
+    model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 settings = Settings()
