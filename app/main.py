@@ -124,6 +124,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
                                     await manager.broadcast_to_chat(ws_msg, recipients)
                         except Exception as inner_e:
                             logger.error(f"Typing broadcast failure for user {user_id} in chat {chat_id}: {inner_e}")
+                elif msg.get("type") == "user_status_update":
+                    new_status = msg.get("status")
+                    if new_status:
+                        await manager.update_user_status(user_id, new_status)
             except json.JSONDecodeError:
                 pass
             except Exception as e:

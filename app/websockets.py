@@ -9,18 +9,21 @@ class ConnectionManager:
     def __init__(self):
         # user_id -> list of active websockets
         self.active_connections: Dict[int, Set[WebSocket]] = {}
+        # user_id -> status string (online, away)
+        self.user_statuses: Dict[int, str] = {}
 
     async def connect(self, user_id: int, websocket: WebSocket):
         await websocket.accept()
         is_new_online = user_id not in self.active_connections
         if user_id not in self.active_connections:
             self.active_connections[user_id] = set()
+            self.user_statuses[user_id] = "online"
         self.active_connections[user_id].add(websocket)
         logger.info(f"User {user_id} connected. Total connections for user: {len(self.active_connections[user_id])}")
         
         # If this is the first connection for this user, notify others
         if is_new_online:
-            await self.broadcast_status(user_id, True)
+            await self.broadcast_status(user_id, "online")
 
     async def disconnect(self, user_id: int, websocket: WebSocket):
         if user_id in self.active_connections:
@@ -28,15 +31,25 @@ class ConnectionManager:
             logger.info(f"User {user_id} disconnected. Remaining connections: {len(self.active_connections.get(user_id, []))}")
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
+                if user_id in self.user_statuses:
+                    del self.user_statuses[user_id]
                 # Last connection closed, notify others
-                await self.broadcast_status(user_id, False)
+                await self.broadcast_status(user_id, "offline")
 
-    async def broadcast_status(self, user_id: int, is_online: bool):
+    async def update_user_status(self, user_id: int, status: str):
+        if user_id in self.active_connections:
+            # Valid statuses: online, away
+            if status in ["online", "away"]:
+                self.user_statuses[user_id] = status
+                await self.broadcast_status(user_id, status)
+
+    async def broadcast_status(self, user_id: int, status: str):
         status_msg = {
             "type": "user_status",
             "data": {
                 "user_id": user_id,
-                "online": is_online
+                "status": status,
+                "online": status != "offline"
             }
         }
         # In a real app, only broadcast to contacts/members of mutual chats
@@ -45,8 +58,8 @@ class ConnectionManager:
             if other_user_id != user_id:
                 await self.send_personal_message(status_msg, other_user_id)
 
-    def get_online_users(self) -> List[int]:
-        return list(self.active_connections.keys())
+    def get_online_users(self) -> Dict[int, str]:
+        return self.user_statuses
 
     async def send_personal_message(self, message: dict, user_id: int):
         if user_id in self.active_connections:
