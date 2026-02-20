@@ -6,14 +6,35 @@ class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50, description="Unique username")
 
 class UserCreate(UserBase):
+    email: str = Field(..., description="User email")
     password: str = Field(..., min_length=6, max_length=100, description="User password")
 
 class UserOut(UserBase):
     id: int
+    email: Optional[str] = None
     avatar_path: Optional[str] = None
     is_admin: bool = False
+    is_verified: bool = False
+    is_2fa_enabled: bool = False
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+class EmailVerification(BaseModel):
+    username: str
+    code: str
+
+class TwoFASetup(BaseModel):
+    otp_auth_url: str
+    secret: str
+
+class TwoFAVerify(BaseModel):
+    code: str
+
+class LoginResponse(BaseModel):
+    access_token: Optional[str] = None
+    token_type: Optional[str] = None
+    requires_2fa: bool = False
+    username: Optional[str] = None
 
 class Token(BaseModel):
     access_token: str

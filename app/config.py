@@ -28,6 +28,16 @@ class Settings(BaseSettings):
     AVATAR_DIR: str = "avatars"
     MAX_FILE_SIZE: int = 50 * 1024 * 1024  # 50MB
     ALLOWED_EXTENSIONS: List[str] = [".jpg", ".jpeg", ".png", ".gif", ".pdf", ".txt", ".doc", ".docx", ".zip"]
+
+    # SMTP Settings (For development using Mailtrap or similar)
+    SMTP_HOST: str = "smtp.mailtrap.io"
+    SMTP_PORT: int = 2525
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = "noreply@messenger.app"
+    
+    # OTP Settings
+    EMAIL_VERIFICATION_EXPIRE_MINUTES: int = 10
     
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 

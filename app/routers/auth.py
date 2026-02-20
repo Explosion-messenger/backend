@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..database import get_db
 from ..models import User
-from ..schemas import UserCreate, UserOut, Token
+from ..schemas import UserCreate, UserOut, Token, EmailVerification, LoginResponse, TwoFASetup, TwoFAVerify
 from ..auth import get_current_user, get_current_admin_user
 from ..services import user_service
 from ..websockets import manager
@@ -14,19 +14,83 @@ router = APIRouter()
 async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     user = await user_service.register_user(db, user_in)
     if not user:
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise HTTPException(status_code=400, detail="Username or Email already registered")
     return user
 
-@router.post("/login", response_model=Token)
+@router.post("/verify-email")
+async def verify_email(data: EmailVerification, db: AsyncSession = Depends(get_db)):
+    success = await user_service.verify_user_email(db, data.username, data.code)
+    if not success:
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+    return {"status": "success"}
+
+@router.post("/login", response_model=LoginResponse)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    user = await user_service.authenticate_user(db, form_data.username, form_data.password)
+    result = await user_service.authenticate_user(db, form_data.username, form_data.password)
+    user = result["user"]
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return user_service.create_user_token(user)
+        
+    if not user.is_verified:
+        raise HTTPException(status_code=403, detail="Email not verified")
+        
+    if result["requires_2fa"]:
+        return LoginResponse(requires_2fa=True, username=user.username)
+        
+    token_data = user_service.create_user_token(user)
+    return LoginResponse(
+        access_token=token_data["access_token"],
+        token_type=token_data["token_type"],
+        requires_2fa=False,
+        username=user.username
+    )
+
+@router.post("/login/2fa", response_model=LoginResponse)
+async def login_2fa(data: TwoFAVerify, username: str, db: AsyncSession = Depends(get_db)):
+    user = await user_service.verify_passwordless_2fa(db, username, data.code)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid 2FA code")
+        
+    token_data = user_service.create_user_token(user)
+    return LoginResponse(
+        access_token=token_data["access_token"],
+        token_type=token_data["token_type"],
+        requires_2fa=False,
+        username=user.username
+    )
+
+@router.get("/2fa/setup", response_model=TwoFASetup)
+async def setup_2fa(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from ..services.otp_service import generate_2fa_secret, get_2fa_uri
+    if current_user.is_2fa_enabled:
+        raise HTTPException(status_code=400, detail="2FA already enabled")
+        
+    secret = generate_2fa_secret()
+    uri = get_2fa_uri(current_user.username, secret)
+    
+    # Store temporary secret (caution: this overwrites any existing secret)
+    current_user.otp_secret = secret
+    await db.commit()
+    
+    return TwoFASetup(otp_auth_url=uri, secret=secret)
+
+@router.post("/2fa/enable")
+async def enable_2fa(data: TwoFAVerify, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    from ..services.otp_service import verify_2fa_code
+    if not current_user.otp_secret:
+        raise HTTPException(status_code=400, detail="2FA setup not initiated")
+        
+    if verify_2fa_code(current_user.otp_secret, data.code):
+        current_user.is_2fa_enabled = True
+        await db.commit()
+        return {"status": "success"}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid 2FA code")
+
 
 @router.get("/me", response_model=UserOut)
 async def read_users_me(current_user: User = Depends(get_current_user)):

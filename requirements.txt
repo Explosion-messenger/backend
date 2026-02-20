@@ -9,3 +9,7 @@ python-multipart
 pydantic-settings
 python-dotenv
 websockets
+pyotp
+qrcode
+aiosmtplib
+pillow

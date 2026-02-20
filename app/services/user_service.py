@@ -12,27 +12,78 @@ from ..config import settings
 
 async def register_user(db: AsyncSession, user_in: UserCreate) -> Optional[User]:
     from sqlalchemy.exc import IntegrityError
-    result = await db.execute(select(User).where(User.username == user_in.username))
+    from .email_service import send_verification_email
+    from .otp_service import generate_email_otp
+    
+    # Check if username or email exists
+    stmt = select(User).where((User.username == user_in.username) | (User.email == user_in.email))
+    result = await db.execute(stmt)
     if result.scalars().first():
         return None
     
     hashed_password = get_password_hash(user_in.password)
-    user = User(username=user_in.username, password_hash=hashed_password)
+    # Use otp_secret to store the temporary verification code
+    verification_code = generate_email_otp()
+    
+    user = User(
+        username=user_in.username, 
+        email=user_in.email,
+        password_hash=hashed_password,
+        otp_secret=verification_code,
+        is_verified=False
+    )
     db.add(user)
     try:
         await db.commit()
         await db.refresh(user)
+        # Send email asynchronously
+        import asyncio
+        asyncio.create_task(send_verification_email(user.email, verification_code))
     except IntegrityError:
         await db.rollback()
         return None
     return user
 
-async def authenticate_user(db: AsyncSession, username: str, password: str) -> Optional[User]:
+async def verify_user_email(db: AsyncSession, username: str, code: str) -> bool:
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalars().first()
-    if not user or not verify_password(password, user.password_hash):
+    if not user or user.is_verified:
+        return False
+    
+    if user.otp_secret == code:
+        user.is_verified = True
+        user.otp_secret = None  # Clear temporary code
+        await db.commit()
+        return True
+    return False
+
+async def authenticate_user(db: AsyncSession, username: str, password: str) -> dict:
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
+    
+    if not user:
+        return {"user": None, "requires_2fa": False}
+        
+    if not verify_password(password, user.password_hash):
+        return {"user": None, "requires_2fa": False}
+
+    if user.is_2fa_enabled:
+        return {"user": user, "requires_2fa": True}
+        
+    return {"user": user, "requires_2fa": False}
+
+async def verify_passwordless_2fa(db: AsyncSession, username: str, code: str) -> Optional[User]:
+    from .otp_service import verify_2fa_code
+    result = await db.execute(select(User).where(User.username == username))
+    user = result.scalars().first()
+    
+    if not user or not user.is_2fa_enabled or not user.otp_secret:
         return None
-    return user
+        
+    if verify_2fa_code(user.otp_secret, code):
+        return user
+    return None
+
 
 def create_user_token(user: User):
     access_token = create_access_token(
