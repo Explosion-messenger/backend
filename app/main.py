@@ -95,7 +95,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = Query(...)):
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
-                await manager.handle_message(user_id, msg)
+                await manager.handle_message(user_id, msg, websocket)
             except json.JSONDecodeError:
                 pass
             except Exception as e:

@@ -7,41 +7,69 @@ logger = logging.getLogger(__name__)
 
 class ConnectionManager:
     def __init__(self):
-        # user_id -> list of active websockets
-        self.active_connections: Dict[int, Set[WebSocket]] = {}
-        # user_id -> status string (online, away)
+        # user_id -> Dict[websocket, status_string]
+        self.active_connections: Dict[int, Dict[WebSocket, str]] = {}
+        # user_id -> currently broadcasted aggregated status
         self.user_statuses: Dict[int, str] = {}
+
+    def _get_aggregated_status(self, user_id: int) -> str:
+        if user_id not in self.active_connections or not self.active_connections[user_id]:
+            return "offline"
+        
+        statuses = self.active_connections[user_id].values()
+        if "online" in statuses:
+            return "online"
+        return "away"
 
     async def connect(self, user_id: int, websocket: WebSocket):
         await websocket.accept()
-        is_new_online = user_id not in self.active_connections
+        
         if user_id not in self.active_connections:
-            self.active_connections[user_id] = set()
-            self.user_statuses[user_id] = "online"
-        self.active_connections[user_id].add(websocket)
+            self.active_connections[user_id] = {}
+        
+        # New connection defaults to online
+        self.active_connections[user_id][websocket] = "online"
+        
+        new_agg_status = self._get_aggregated_status(user_id)
+        old_agg_status = self.user_statuses.get(user_id, "offline")
+        
+        self.user_statuses[user_id] = new_agg_status
+        
         logger.info(f"User {user_id} connected. Total connections for user: {len(self.active_connections[user_id])}")
         
-        # If this is the first connection for this user, notify others
-        if is_new_online:
-            await self.broadcast_status(user_id, "online")
+        if new_agg_status != old_agg_status:
+            await self.broadcast_status(user_id, new_agg_status)
 
     async def disconnect(self, user_id: int, websocket: WebSocket):
         if user_id in self.active_connections:
-            self.active_connections[user_id].discard(websocket)
-            logger.info(f"User {user_id} disconnected. Remaining connections: {len(self.active_connections.get(user_id, []))}")
+            if websocket in self.active_connections[user_id]:
+                del self.active_connections[user_id][websocket]
+            
+            logger.info(f"User {user_id} disconnected. Remaining connections: {len(self.active_connections[user_id])}")
+            
             if not self.active_connections[user_id]:
                 del self.active_connections[user_id]
                 if user_id in self.user_statuses:
                     del self.user_statuses[user_id]
-                # Last connection closed, notify others
                 await self.broadcast_status(user_id, "offline")
+            else:
+                new_agg_status = self._get_aggregated_status(user_id)
+                old_agg_status = self.user_statuses.get(user_id)
+                if new_agg_status != old_agg_status:
+                    self.user_statuses[user_id] = new_agg_status
+                    await self.broadcast_status(user_id, new_agg_status)
 
-    async def update_user_status(self, user_id: int, status: str):
-        if user_id in self.active_connections:
-            # Valid statuses: online, away
+    async def update_user_status(self, user_id: int, status: str, websocket: WebSocket):
+        if user_id in self.active_connections and websocket in self.active_connections[user_id]:
             if status in ["online", "away"]:
-                self.user_statuses[user_id] = status
-                await self.broadcast_status(user_id, status)
+                self.active_connections[user_id][websocket] = status
+                
+                new_agg_status = self._get_aggregated_status(user_id)
+                old_agg_status = self.user_statuses.get(user_id)
+                
+                if new_agg_status != old_agg_status:
+                    self.user_statuses[user_id] = new_agg_status
+                    await self.broadcast_status(user_id, new_agg_status)
 
     async def broadcast_status(self, user_id: int, status: str):
         status_msg = {
@@ -75,26 +103,29 @@ class ConnectionManager:
 
     async def send_personal_message(self, message: dict, user_id: int):
         if user_id in self.active_connections:
-            sockets = list(self.active_connections[user_id])
+            # Create a copy of sockets to avoid dict mutation during iteration
+            sockets = list(self.active_connections[user_id].keys())
             for connection in sockets:
                 try:
                     await connection.send_json(message)
                 except Exception as e:
                     logger.error(f"Failed to send message to user {user_id}: {str(e)}")
-                    if user_id in self.active_connections:
-                        self.active_connections[user_id].discard(connection)
+                    if user_id in self.active_connections and connection in self.active_connections[user_id]:
+                        del self.active_connections[user_id][connection]
             
             if user_id in self.active_connections and not self.active_connections[user_id]:
                 del self.active_connections[user_id]
+                if user_id in self.user_statuses:
+                    del self.user_statuses[user_id]
                 # If the last socket just died, notify others
-                await self.broadcast_status(user_id, False)
+                await self.broadcast_status(user_id, "offline")
 
     async def broadcast_to_chat(self, message: dict, member_ids: List[int]):
         logger.info(f"ConnectionManager: Broadcasting to members {member_ids}")
         for user_id in member_ids:
             await self.send_personal_message(message, user_id)
 
-    async def handle_message(self, user_id: int, msg: dict):
+    async def handle_message(self, user_id: int, msg: dict, websocket: WebSocket):
         msg_type = msg.get("type")
         if msg_type == "typing":
             chat_id = msg.get("chat_id")
@@ -130,6 +161,6 @@ class ConnectionManager:
         elif msg_type == "user_status_update":
             new_status = msg.get("status")
             if new_status:
-                await self.update_user_status(user_id, new_status)
+                await self.update_user_status(user_id, new_status, websocket)
 
 manager = ConnectionManager()
