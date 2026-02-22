@@ -6,7 +6,7 @@ import os
 import shutil
 from ..config import settings
 from ..models import Chat, ChatMember, User, Message
-from ..schemas import ChatCreate, ChatOut
+from ..schemas import ChatCreate, ChatOut, ChatMemberOut
 from ..websockets import manager
 
 async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
