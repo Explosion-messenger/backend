@@ -25,6 +25,7 @@ class UserOut(UserBase):
 
 class ChatMemberOut(UserOut):
     is_chat_admin: bool = False
+    is_chat_owner: bool = False
 
 class EmailVerification(BaseModel):
     username: str

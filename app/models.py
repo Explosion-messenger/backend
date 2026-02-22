@@ -42,6 +42,7 @@ class ChatMember(Base):
     chat_id = Column(Integer, ForeignKey("chats.id", ondelete="CASCADE"))
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     is_admin = Column(Boolean, default=False)
+    is_owner = Column(Boolean, default=False)
 
     chat = relationship("Chat", back_populates="members")
     user = relationship("User", back_populates="chats")

@@ -63,6 +63,7 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
         for cm in chat.members:
             m_out = ChatMemberOut.model_validate(cm.user)
             m_out.is_chat_admin = cm.is_admin
+            m_out.is_chat_owner = cm.is_owner
             members.append(m_out)
             
         last_msg = last_messages.get(chat.id)
@@ -94,8 +95,8 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
         member_ids.add(creator_id)
         
         for m_id in member_ids:
-            is_admin = (m_id == creator_id)
-            db.add(ChatMember(chat_id=chat_id, user_id=m_id, is_admin=is_admin))
+            is_creator = (m_id == creator_id)
+            db.add(ChatMember(chat_id=chat_id, user_id=m_id, is_admin=is_creator, is_owner=is_creator))
         
         await db.commit()
     else:
@@ -153,11 +154,11 @@ async def search_users(db: AsyncSession, query: str, exclude_user_id: int):
     return result.scalars().all()
 
 async def update_chat(db: AsyncSession, chat_id: int, name: Optional[str], avatar_path: Optional[str], user_id: int):
-    # Check if user is member AND admin
+    # Check if user is member AND (admin OR owner)
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
     result = await db.execute(stmt)
     cm = result.scalars().first()
-    if not cm or not cm.is_admin:
+    if not cm or (not cm.is_admin and not cm.is_owner):
         return None
     
     stmt = select(Chat).where(Chat.id == chat_id)
@@ -211,8 +212,26 @@ async def remove_member(db: AsyncSession, chat_id: int, member_id: int, user_id:
     if not cm_caller:
         return None
     
-    # Permission check: must be admin OR removing self
-    if not cm_caller.is_admin and member_id != user_id:
+    # Permission check: 
+    # 1. Owner can remove anyone (except self? No, owner can leave if they want, but usually better to stay)
+    # 2. Admin can remove only non-admins/non-owners
+    # 3. User can remove themselves
+    
+    if member_id == user_id:
+        # Self removal is always allowed
+        pass
+    elif cm_caller.is_owner:
+        # Owner can remove anyone
+        pass
+    elif cm_caller.is_admin:
+        # Get target member's role
+        stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == member_id)
+        res = await db.execute(stmt)
+        target_cm = res.scalars().first()
+        if not target_cm or target_cm.is_owner or target_cm.is_admin:
+            return None
+    else:
+        # Normal members can't remove others
         return None
     
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == member_id)
@@ -235,27 +254,33 @@ async def remove_member(db: AsyncSession, chat_id: int, member_id: int, user_id:
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id)
     res = await db.execute(stmt)
     if not res.scalars().first():
-        # Delete chat if no members left
-        await delete_chat(db, chat_id, user_id)
+        # Delete chat if no members left. Force true because we just deleted ourselves or were removed.
+        await delete_chat(db, chat_id, user_id, force=True)
         return None
 
     return await get_chat_out(db, chat_id)
 
-async def delete_chat(db: AsyncSession, chat_id: int, user_id: int):
-    # Check if user is member
-    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
-    res = await db.execute(stmt)
-    if not res.scalars().first():
+async def delete_chat(db: AsyncSession, chat_id: int, user_id: int, force: bool = False):
+    chat_stmt = select(Chat).where(Chat.id == chat_id)
+    chat_res = await db.execute(chat_stmt)
+    chat = chat_res.scalars().first()
+    if not chat:
         return False
+
+    # Check mapping
+    if not force:
+        stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
+        res = await db.execute(stmt)
+        cm = res.scalars().first()
+        if not cm:
+            return False
+        
+        # If it's a group, only owner can delete manually
+        if chat.is_group and not cm.is_owner:
+            return False
     
     # Get members before deletion
     member_ids = await get_chat_member_ids(db, chat_id)
-    
-    stmt = select(Chat).where(Chat.id == chat_id)
-    res = await db.execute(stmt)
-    chat = res.scalars().first()
-    if not chat:
-        return False
     
     await db.delete(chat)
     await db.commit()
@@ -302,6 +327,7 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
     for cm in chat.members:
         m_out = ChatMemberOut.model_validate(cm.user)
         m_out.is_chat_admin = cm.is_admin
+        m_out.is_chat_owner = cm.is_owner
         members.append(m_out)
 
     chat_out = ChatOut(
@@ -326,7 +352,8 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
                     "id": m.id, 
                     "username": m.username, 
                     "avatar_path": m.avatar_path, 
-                    "is_chat_admin": m.is_chat_admin
+                    "is_chat_admin": m.is_chat_admin,
+                    "is_chat_owner": m.is_chat_owner
                 } for m in chat_out.members
             ]
         }
@@ -337,11 +364,11 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
     return chat_out
 
 async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename: str, user_id: int):
-    # Check if user is member AND admin
+    # Check if user is member AND (admin OR owner)
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
     result = await db.execute(stmt)
     cm = result.scalars().first()
-    if not cm or not cm.is_admin:
+    if not cm or (not cm.is_admin and not cm.is_owner):
         return None
     
     stmt = select(Chat).where(Chat.id == chat_id)
@@ -384,18 +411,19 @@ async def is_chat_member(db: AsyncSession, chat_id: int, user_id: int) -> bool:
     return result.scalars().first() is not None
 
 async def set_member_admin(db: AsyncSession, chat_id: int, target_user_id: int, is_admin: bool, request_user_id: int):
-    # Check if requester is admin
+    # Check if requester is owner
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == request_user_id)
     res = await db.execute(stmt)
     requester = res.scalars().first()
-    if not requester or not requester.is_admin:
+    if not requester or not requester.is_owner:
         return None
     
     # Check if target is member
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == target_user_id)
     res = await db.execute(stmt)
     target = res.scalars().first()
-    if not target:
+    if not target or target.is_owner:
+        # Cannot demote owner
         return None
     
     target.is_admin = is_admin
