@@ -60,15 +60,25 @@ async def mark_as_read(db: AsyncSession, message_id: int, user_id: int):
     # Mark as read
     db_read = MessageRead(message_id=message_id, user_id=user_id)
     db.add(db_read)
+    await db.commit()
     
-    try:
-        await db.commit()
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Failed to mark as read: {e}")
-        return True
+    # Prepare broadcast
+    read_at = datetime.now(timezone.utc).isoformat()
+    stmt = select(ChatMember.user_id).where(ChatMember.chat_id == message.chat_id)
+    res = await db.execute(stmt)
+    member_ids = list(res.scalars().all())
 
-    await manager.broadcast_to_chat(ws_msg, list(member_ids))
+    ws_msg = {
+        "type": "message_read",
+        "data": {
+            "message_id": message_id,
+            "chat_id": message.chat_id,
+            "user_id": user_id,
+            "read_at": read_at
+        }
+    }
+    
+    await manager.broadcast_to_chat(ws_msg, member_ids)
     return True
 
 async def mark_all_as_read(db: AsyncSession, chat_id: int, user_id: int):
