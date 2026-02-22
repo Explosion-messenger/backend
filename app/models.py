@@ -55,6 +55,7 @@ class Message(Base):
     sender_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
     text = Column(String, nullable=True)
     file_id = Column(Integer, ForeignKey("files.id", ondelete="SET NULL"), nullable=True)
+    reply_to_id = Column(Integer, ForeignKey("messages.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     chat = relationship("Chat", back_populates="messages")
@@ -62,6 +63,7 @@ class Message(Base):
     file = relationship("File", back_populates="message")
     read_by = relationship("MessageRead", back_populates="message", cascade="all, delete-orphan")
     reactions = relationship("MessageReaction", back_populates="message", cascade="all, delete-orphan")
+    reply_to = relationship("Message", remote_side=[id], backref="replies")
 
 class MessageRead(Base):
     __tablename__ = "message_reads"

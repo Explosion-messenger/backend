@@ -63,6 +63,7 @@ class FileOut(BaseModel):
 class MessageBase(BaseModel):
     text: Optional[str] = Field(None, max_length=4000)
     file_id: Optional[int] = None
+    reply_to_id: Optional[int] = None
 
 class MessageCreate(MessageBase):
     chat_id: int
@@ -79,6 +80,12 @@ class MessageReactionOut(BaseModel):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+class MessageReplyOut(BaseModel):
+    id: int
+    text: Optional[str] = None
+    sender: UserOut
+    model_config = ConfigDict(from_attributes=True)
+
 class MessageOut(BaseModel):
     id: int
     chat_id: int
@@ -89,6 +96,7 @@ class MessageOut(BaseModel):
     created_at: datetime
     read_by: List[MessageReadOut] = []
     reactions: List[MessageReactionOut] = []
+    reply_to: Optional[MessageReplyOut] = None
     model_config = ConfigDict(from_attributes=True)
 
 class ReactionToggle(BaseModel):

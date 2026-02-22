@@ -26,7 +26,8 @@ async def get_messages(db: AsyncSession, chat_id: int, user_id: int, offset: int
             joinedload(Message.file), 
             joinedload(Message.sender),
             selectinload(Message.read_by),
-            selectinload(Message.reactions)
+            selectinload(Message.reactions),
+            joinedload(Message.reply_to).joinedload(Message.sender)
         )
         .order_by(Message.created_at.asc())
         .offset(offset)
@@ -173,7 +174,8 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
         chat_id=payload.chat_id,
         sender_id=sender_id,
         text=payload.text,
-        file_id=payload.file_id
+        file_id=payload.file_id,
+        reply_to_id=payload.reply_to_id
     )
     db.add(message)
     await db.commit()
@@ -186,7 +188,8 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
             joinedload(Message.file), 
             joinedload(Message.sender),
             selectinload(Message.read_by),
-            selectinload(Message.reactions)
+            selectinload(Message.reactions),
+            joinedload(Message.reply_to).joinedload(Message.sender)
         )
     )
     result = await db.execute(stmt)
@@ -217,7 +220,16 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
             } if message.file else None,
             "created_at": message.created_at.isoformat(),
             "read_by": [],
-            "reactions": []
+            "reactions": [],
+            "reply_to": {
+                "id": message.reply_to.id,
+                "text": message.reply_to.text,
+                "sender": {
+                    "id": message.reply_to.sender.id,
+                    "username": message.reply_to.sender.username,
+                    "avatar_path": message.reply_to.sender.avatar_path
+                }
+            } if message.reply_to else None
         }
     }
     await manager.broadcast_to_chat(ws_msg, list(member_ids))
