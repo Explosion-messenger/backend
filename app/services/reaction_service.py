@@ -17,6 +17,11 @@ async def toggle_reaction(db: AsyncSession, message_id: int, user_id: int, emoji
     if not result.scalars().first():
         return None
         
+    # Fetch member IDs for broadcasting
+    stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
+    res = await db.execute(stmt)
+    member_ids = list(res.scalars().all())
+
     # Check if a reaction already exists for this user/emoji
     stmt = select(MessageReaction).where(
         MessageReaction.message_id == message_id,
@@ -25,7 +30,7 @@ async def toggle_reaction(db: AsyncSession, message_id: int, user_id: int, emoji
     )
     result = await db.execute(stmt)
     existing_reaction = result.scalars().first()
-    
+
     if existing_reaction:
         # If it's the SAME emoji, toggle it off (standard behavior)
         await db.delete(existing_reaction)
@@ -74,7 +79,6 @@ async def toggle_reaction(db: AsyncSession, message_id: int, user_id: int, emoji
     await manager.broadcast_to_chat(ws_msg, member_ids)
 
     # Return eagerly loaded message for Android REST response compatibility
-    from .message_service import Message
     from sqlalchemy.orm import joinedload, selectinload
     
     msg_stmt = (
