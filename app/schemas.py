@@ -108,6 +108,7 @@ class ChatOut(BaseModel):
     created_at: datetime
     members: List[ChatMemberOut]
     last_message: Optional[MessageOut] = None
+    unread_count: int = 0
     model_config = ConfigDict(from_attributes=True)
 
 class ChatUpdate(BaseModel):

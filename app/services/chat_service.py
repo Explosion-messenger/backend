@@ -33,6 +33,7 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
     # Fetch last messages for all chats in a single query
     chat_ids = [chat.id for chat in chats]
     last_messages: dict[int, Message] = {}
+    unread_counts: dict[int, int] = {}
     if chat_ids:
         last_msg_ids_stmt = (
             select(func.max(Message.id).label("msg_id"), Message.chat_id)
@@ -57,6 +58,19 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
             for msg in msgs_result.unique().scalars().all():
                 last_messages[msg.chat_id] = msg
 
+        from ..models import MessageRead
+        unread_stmt = (
+            select(Message.chat_id, func.count(Message.id).label("unread_count"))
+            .outerjoin(MessageRead, (Message.id == MessageRead.message_id) & (MessageRead.user_id == user_id))
+            .where(Message.chat_id.in_(chat_ids))
+            .where(Message.sender_id != user_id)
+            .where(MessageRead.id == None)
+            .group_by(Message.chat_id)
+        )
+        unread_result = await db.execute(unread_stmt)
+        for row in unread_result:
+            unread_counts[row.chat_id] = row.unread_count
+
     out = []
     for chat in chats:
         members = []
@@ -67,6 +81,7 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
             members.append(m_out)
             
         last_msg = last_messages.get(chat.id)
+        unread_count = unread_counts.get(chat.id, 0)
         
         out.append(ChatOut(
             id=chat.id,
@@ -75,7 +90,8 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
             is_group=chat.is_group,
             created_at=chat.created_at,
             members=members,
-            last_message=last_msg
+            last_message=last_msg,
+            unread_count=unread_count
         ))
     return out
 
