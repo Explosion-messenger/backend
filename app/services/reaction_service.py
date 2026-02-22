@@ -72,5 +72,20 @@ async def toggle_reaction(db: AsyncSession, message_id: int, user_id: int, emoji
         }
     }
     await manager.broadcast_to_chat(ws_msg, member_ids)
+
+    # Return eagerly loaded message for Android REST response compatibility
+    from .message_service import Message
+    from sqlalchemy.orm import joinedload, selectinload
     
-    return {"status": "success", "action": action}
+    msg_stmt = (
+        select(Message)
+        .where(Message.id == message_id)
+        .options(
+            joinedload(Message.file),
+            joinedload(Message.sender),
+            selectinload(Message.read_by),
+            selectinload(Message.reactions)
+        )
+    )
+    msg_result = await db.execute(msg_stmt)
+    return msg_result.unique().scalars().first()
