@@ -59,7 +59,12 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
 
     out = []
     for chat in chats:
-        members = [cm.user for cm in chat.members]
+        members = []
+        for cm in chat.members:
+            m_out = ChatMemberOut.model_validate(cm.user)
+            m_out.is_chat_admin = cm.is_admin
+            members.append(m_out)
+            
         last_msg = last_messages.get(chat.id)
         
         out.append(ChatOut(
@@ -89,7 +94,8 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
         member_ids.add(creator_id)
         
         for m_id in member_ids:
-            db.add(ChatMember(chat_id=chat_id, user_id=m_id))
+            is_admin = (m_id == creator_id)
+            db.add(ChatMember(chat_id=chat_id, user_id=m_id, is_admin=is_admin))
         
         await db.commit()
     else:
@@ -147,10 +153,11 @@ async def search_users(db: AsyncSession, query: str, exclude_user_id: int):
     return result.scalars().all()
 
 async def update_chat(db: AsyncSession, chat_id: int, name: Optional[str], avatar_path: Optional[str], user_id: int):
-    # Check if user is member
+    # Check if user is member AND admin
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
     result = await db.execute(stmt)
-    if not result.scalars().first():
+    cm = result.scalars().first()
+    if not cm or not cm.is_admin:
         return None
     
     stmt = select(Chat).where(Chat.id == chat_id)
@@ -168,10 +175,11 @@ async def update_chat(db: AsyncSession, chat_id: int, name: Optional[str], avata
     return await get_chat_out(db, chat_id)
 
 async def add_member(db: AsyncSession, chat_id: int, member_id: int, user_id: int):
-    # Check if user is member
+    # Check if caller is member AND admin
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
     res = await db.execute(stmt)
-    if not res.scalars().first():
+    cm_caller = res.scalars().first()
+    if not cm_caller or not cm_caller.is_admin:
         return None
     
     # Check if already member
@@ -196,13 +204,15 @@ async def add_member(db: AsyncSession, chat_id: int, member_id: int, user_id: in
     return chat_out
 
 async def remove_member(db: AsyncSession, chat_id: int, member_id: int, user_id: int):
-    # Check if user is member (or admin, but for now any member can remove others? Or maybe user can only remove themselves? The request says "удаления участников")
-    # Let's allow any member to remove any member for simplicity, or we can restrict.
-    # Usually you'd want some admin logic.
-    
+    # Check if caller is member
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
     res = await db.execute(stmt)
-    if not res.scalars().first():
+    cm_caller = res.scalars().first()
+    if not cm_caller:
+        return None
+    
+    # Permission check: must be admin OR removing self
+    if not cm_caller.is_admin and member_id != user_id:
         return None
     
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == member_id)
@@ -288,13 +298,19 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
     res = await db.execute(stmt)
     last_msg = res.scalars().first()
     
+    members = []
+    for cm in chat.members:
+        m_out = ChatMemberOut.model_validate(cm.user)
+        m_out.is_chat_admin = cm.is_admin
+        members.append(m_out)
+
     chat_out = ChatOut(
         id=chat.id,
         name=chat.name,
         avatar_path=chat.avatar_path,
         is_group=chat.is_group,
         created_at=chat.created_at,
-        members=[cm.user for cm in chat.members],
+        members=members,
         last_message=last_msg
     )
     
@@ -306,7 +322,12 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
             "name": chat_out.name,
             "avatar_path": chat_out.avatar_path,
             "members": [
-                {"id": m.id, "username": m.username, "avatar_path": m.avatar_path} for m in chat_out.members
+                {
+                    "id": m.id, 
+                    "username": m.username, 
+                    "avatar_path": m.avatar_path, 
+                    "is_chat_admin": m.is_chat_admin
+                } for m in chat_out.members
             ]
         }
     }
@@ -316,10 +337,11 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
     return chat_out
 
 async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename: str, user_id: int):
-    # Check if user is member
+    # Check if user is member AND admin
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
     result = await db.execute(stmt)
-    if not result.scalars().first():
+    cm = result.scalars().first()
+    if not cm or not cm.is_admin:
         return None
     
     stmt = select(Chat).where(Chat.id == chat_id)
@@ -360,3 +382,22 @@ async def is_chat_member(db: AsyncSession, chat_id: int, user_id: int) -> bool:
     stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == user_id)
     result = await db.execute(stmt)
     return result.scalars().first() is not None
+
+async def set_member_admin(db: AsyncSession, chat_id: int, target_user_id: int, is_admin: bool, request_user_id: int):
+    # Check if requester is admin
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == request_user_id)
+    res = await db.execute(stmt)
+    requester = res.scalars().first()
+    if not requester or not requester.is_admin:
+        return None
+    
+    # Check if target is member
+    stmt = select(ChatMember).where(ChatMember.chat_id == chat_id, ChatMember.user_id == target_user_id)
+    res = await db.execute(stmt)
+    target = res.scalars().first()
+    if not target:
+        return None
+    
+    target.is_admin = is_admin
+    await db.commit()
+    return await get_chat_out(db, chat_id)

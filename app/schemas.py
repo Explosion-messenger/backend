@@ -23,6 +23,9 @@ class UserOut(UserBase):
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
+class ChatMemberOut(UserOut):
+    is_chat_admin: bool = False
+
 class EmailVerification(BaseModel):
     username: str
     code: str
@@ -102,7 +105,7 @@ class ChatOut(BaseModel):
     avatar_path: Optional[str] = None
     is_group: bool = False
     created_at: datetime
-    members: List[UserOut]
+    members: List[ChatMemberOut]
     last_message: Optional[MessageOut] = None
     model_config = ConfigDict(from_attributes=True)
 
@@ -112,6 +115,10 @@ class ChatUpdate(BaseModel):
 
 class AddMember(BaseModel):
     user_id: int
+
+class MemberAdminUpdate(BaseModel):
+    user_id: int
+    is_admin: bool
 
 class StatusResponse(BaseModel):
     status: str

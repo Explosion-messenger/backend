@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional
 from ..database import get_db
 from ..models import User
-from ..schemas import ChatOut, ChatCreate, UserOut, ChatUpdate, AddMember, StatusResponse
+from ..schemas import ChatOut, ChatCreate, UserOut, ChatUpdate, AddMember, StatusResponse, MemberAdminUpdate
 from ..auth import get_current_user
 from ..services import chat_service
 
@@ -73,6 +73,21 @@ async def upload_chat_avatar(
     db: AsyncSession = Depends(get_db)
 ):
     chat = await chat_service.update_chat_avatar(db, chat_id, file.file, file.filename, current_user.id)
+    if not chat:
+        raise HTTPException(status_code=403, detail="Forbidden or chat not found")
+    return chat
+
+@router.patch("/chats/{chat_id}/members/{member_id}/admin", response_model=ChatOut)
+async def update_member_admin(
+    chat_id: int,
+    member_id: int,
+    payload: MemberAdminUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    if member_id != payload.user_id:
+         raise HTTPException(status_code=400, detail="User ID mismatch")
+    chat = await chat_service.set_member_admin(db, chat_id, member_id, payload.is_admin, current_user.id)
     if not chat:
         raise HTTPException(status_code=403, detail="Forbidden or chat not found")
     return chat
