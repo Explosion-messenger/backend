@@ -17,29 +17,50 @@ async def toggle_reaction(db: AsyncSession, message_id: int, user_id: int, emoji
     if not result.scalars().first():
         return None
         
-    # Check if reaction exists
+    # Check if a reaction already exists for this user/emoji
     stmt = select(MessageReaction).where(
         MessageReaction.message_id == message_id,
         MessageReaction.user_id == user_id,
         MessageReaction.emoji == emoji
     )
     result = await db.execute(stmt)
-    reaction = result.scalars().first()
+    existing_reaction = result.scalars().first()
     
-    if reaction:
-        await db.delete(reaction)
+    if existing_reaction:
+        # If it's the SAME emoji, toggle it off (standard behavior)
+        await db.delete(existing_reaction)
         action = "removed"
     else:
+        # If it's a DIFFERENT emoji, first remove ANY existing reaction by this user
+        # to enforce "one reaction per user" rule
+        delete_stmt = select(MessageReaction).where(
+            MessageReaction.message_id == message_id,
+            MessageReaction.user_id == user_id
+        )
+        delete_result = await db.execute(delete_stmt)
+        for old_react in delete_result.scalars().all():
+            await db.delete(old_react)
+            # We notify clients that the OLD reaction was removed
+            ws_msg_old = {
+                "type": "message_reaction",
+                "data": {
+                    "message_id": message_id,
+                    "chat_id": chat_id,
+                    "user_id": user_id,
+                    "emoji": old_react.emoji,
+                    "action": "removed"
+                }
+            }
+            await manager.broadcast_to_chat(ws_msg_old, member_ids)
+
+        # Now add the new one
         reaction = MessageReaction(message_id=message_id, user_id=user_id, emoji=emoji)
         db.add(reaction)
         action = "added"
-        
+    
     await db.commit()
     
-    # Broadcast update
-    from .chat_service import get_chat_member_ids
-    member_ids = await get_chat_member_ids(db, chat_id)
-    
+    # Broadcast the CURRENT (added) action
     ws_msg = {
         "type": "message_reaction",
         "data": {
