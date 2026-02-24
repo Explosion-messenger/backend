@@ -356,26 +356,6 @@ async def get_chat_out(db: AsyncSession, chat_id: int) -> Optional[ChatOut]:
         last_message=last_msg
     )
     
-    # Notify members of update
-    ws_msg = {
-        "type": "chat_updated",
-        "data": {
-            "id": chat_out.id,
-            "name": chat_out.name,
-            "avatar_path": chat_out.avatar_path,
-            "members": [
-                {
-                    "id": m.id, 
-                    "username": m.username, 
-                    "avatar_path": m.avatar_path, 
-                    "is_chat_admin": m.is_chat_admin,
-                    "is_chat_owner": m.is_chat_owner
-                } for m in chat_out.members
-            ]
-        }
-    }
-    member_ids = [m.id for m in chat_out.members]
-    await manager.broadcast_to_chat(ws_msg, member_ids)
     
     return chat_out
 
@@ -407,8 +387,9 @@ async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename
         if os.path.exists(old_path):
             try:
                 os.remove(old_path)
-            except:
-                pass
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).error(f"Error deleting file: {e}")
     
     chat.avatar_path = new_filename
     await db.commit()

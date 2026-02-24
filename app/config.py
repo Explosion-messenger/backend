@@ -1,5 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
+import secrets
+from pydantic import Field
 
 class Settings(BaseSettings):
     # App Settings
@@ -9,7 +11,7 @@ class Settings(BaseSettings):
     
     # Security
     # In production, ALWAYS set SECRET_KEY in .env
-    SECRET_KEY: str = "temporary_secret_key_for_dev_only_change_in_production"
+    SECRET_KEY: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 1 week
     
@@ -18,7 +20,7 @@ class Settings(BaseSettings):
     
     # Admin Access
     # In production, ALWAYS set ADMIN_PASSWORD in .env
-    ADMIN_PASSWORD: str = "admin_change_this"
+    ADMIN_PASSWORD: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     
     # CORS
     CORS_ORIGINS: List[str] = ["*"]  # For mobile/dev simplicity, allowing all. Restrict in production via Nginx/Caddy.

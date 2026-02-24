@@ -38,11 +38,10 @@ async def add_member(chat_id: int, payload: AddMember, current_user: User = Depe
         raise HTTPException(status_code=403, detail="Forbidden or chat not found")
     return chat
 
-@router.delete("/chats/{chat_id}/members/{member_id}", response_model=ChatOut)
+@router.delete("/chats/{chat_id}/members/{member_id}")
 async def remove_member(chat_id: int, member_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     chat = await chat_service.remove_member(db, chat_id, member_id, current_user.id)
     if chat is None:
-        # Chat might be deleted if last member left, or forbidden
         return StatusResponse(status="ok", message="Member removed or chat deleted")
     return chat
 
@@ -56,12 +55,10 @@ async def delete_chat(chat_id: int, current_user: User = Depends(get_current_use
 
 @router.post("/chats/{chat_id}/leave")
 async def leave_chat(chat_id: int, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    # This just removes the current user from the chat
     success = await chat_service.remove_member(db, chat_id, current_user.id, current_user.id)
-    if success is None and not await chat_service.is_chat_member(db, chat_id, current_user.id):
-        # Chat might have been deleted because it was the last member
-        return {"status": "ok", "message": "Left chat"}
     if success is None:
+        if not await chat_service.is_chat_member(db, chat_id, current_user.id):
+            return {"status": "ok", "message": "Left chat"}
         raise HTTPException(status_code=403, detail="Forbidden or chat not found")
     return {"status": "ok"}
 

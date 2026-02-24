@@ -1,3 +1,4 @@
+import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
 import uuid
@@ -17,17 +18,17 @@ async def save_file(db: AsyncSession, file_content, filename: str, content_type:
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
     
     file_size = 0
-    with open(file_path, "wb") as buffer:
+    async with aiofiles.open(file_path, "wb") as buffer:
         while True:
             chunk = file_content.read(1024 * 1024)  # 1MB chunks
             if not chunk:
                 break
             file_size += len(chunk)
             if file_size > settings.MAX_FILE_SIZE:
-                buffer.close()
+                await buffer.close()
                 os.remove(file_path)
                 raise HTTPException(status_code=413, detail="File too large")
-            buffer.write(chunk)
+            await buffer.write(chunk)
     
     db_file = File(
         filename=filename,

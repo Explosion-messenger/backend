@@ -137,11 +137,11 @@ class ConnectionManager:
                     from sqlalchemy import select
                     from .database import AsyncSessionLocal
                     async with AsyncSessionLocal() as db:
-                        member_ids_task = get_chat_member_ids(db, chat_id)
+                        member_ids_task = await get_chat_member_ids(db, chat_id)
                         user_name_stmt = select(DBUser.username).where(DBUser.id == user_id)
                         user_name_result = await db.execute(user_name_stmt)
                         user_name = user_name_result.scalar()
-                        member_ids = await member_ids_task
+                        member_ids = member_ids_task
 
                         if user_name:
                             ws_msg = {

@@ -9,8 +9,8 @@ class UserCreate(UserBase):
     email: Optional[str] = Field(None, description="User email (optional)")
     password: str = Field(..., min_length=6, max_length=100, description="User password")
 
-class UserRegisterConfirm(UserCreate):
-    secret: str = Field(..., description="The 2FA secret generated in setup step")
+class UserRegisterConfirm(BaseModel):
+    setup_token: str = Field(..., description="JWT token containing setup state")
     code: str = Field(..., description="The verification code from the authenticator app")
 
 class UserOut(UserBase):
@@ -34,6 +34,7 @@ class EmailVerification(BaseModel):
 class TwoFASetup(BaseModel):
     otp_auth_url: str
     secret: str
+    setup_token: str
 
 class TwoFAVerify(BaseModel):
     code: str

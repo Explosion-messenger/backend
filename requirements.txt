@@ -13,3 +13,4 @@ pyotp
 qrcode
 aiosmtplib
 pillow
+aiofiles==23.2.1

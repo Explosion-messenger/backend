@@ -13,27 +13,47 @@ router = APIRouter()
 
 @router.post("/register/setup", response_model=TwoFASetup)
 async def register_setup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
-    # Check if user exists
     if await user_service.check_user_exists(db, user_in.username, user_in.email):
         raise HTTPException(status_code=400, detail="Username or Email already registered")
         
     from ..services.otp_service import generate_2fa_secret, get_2fa_uri
+    from ..auth import create_access_token
+    from datetime import timedelta
+    
     secret = generate_2fa_secret()
     uri = get_2fa_uri(user_in.username, secret)
-    return TwoFASetup(otp_auth_url=uri, secret=secret)
+    
+    setup_token = create_access_token(
+        data={"sub": user_in.username, "email": user_in.email, "password": user_in.password, "secret": secret},
+        expires_delta=timedelta(minutes=10),
+        token_type="setup"
+    )
+    return TwoFASetup(otp_auth_url=uri, secret=secret, setup_token=setup_token)
 
 @router.post("/register/confirm", response_model=UserOut)
 async def register_confirm(data: UserRegisterConfirm, db: AsyncSession = Depends(get_db)):
     from ..services.otp_service import verify_2fa_code
+    from jose import jwt, JWTError
+    from ..auth import SECRET_KEY, ALGORITHM
     
-    # 1. Verify 2FA code before creating anything
-    if not verify_2fa_code(data.secret, data.code):
+    try:
+        payload = jwt.decode(data.setup_token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "setup":
+            raise HTTPException(status_code=400, detail="Invalid token type")
+        username = payload.get("sub")
+        email = payload.get("email")
+        password = payload.get("password")
+        secret = payload.get("secret")
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Registration session expired or invalid")
+        
+    if not verify_2fa_code(secret, data.code):
         raise HTTPException(status_code=400, detail="Invalid 2FA code")
         
-    # 2. Final check and create user
-    user = await user_service.register_user(db, data, data.secret)
+    user_data = UserCreate(username=username, email=email, password=password)
+    user = await user_service.register_user(db, user_data, secret)
     if not user:
-        raise HTTPException(status_code=400, detail="Registration failed (user might have been created by someone else meanwhile)")
+        raise HTTPException(status_code=400, detail="Registration failed (user might exist now)")
     return user
 
 
@@ -49,7 +69,19 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
         )
         
     if result["requires_2fa"]:
-        return LoginResponse(requires_2fa=True, username=user.username)
+        from ..auth import create_access_token
+        from datetime import timedelta
+        preauth = create_access_token(
+            data={"sub": user.username},
+            expires_delta=timedelta(minutes=5),
+            token_type="preauth"
+        )
+        return LoginResponse(
+            access_token=preauth,
+            token_type="bearer",
+            requires_2fa=True,
+            username=user.username
+        )
         
     token_data = user_service.create_user_token(user)
     return LoginResponse(
@@ -60,8 +92,21 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
     )
 
 @router.post("/login/2fa", response_model=LoginResponse)
-async def login_2fa(data: TwoFAVerify, username: str, db: AsyncSession = Depends(get_db)):
+async def login_2fa(data: TwoFAVerify, token: str = Depends(OAuth2PasswordBearer(tokenUrl="login", auto_error=False)), db: AsyncSession = Depends(get_db)):
     from ..services.otp_service import verify_2fa_code
+    from jose import jwt, JWTError
+    from ..auth import SECRET_KEY, ALGORITHM, create_access_token
+    
+    if not token:
+        raise HTTPException(status_code=401, detail="Pre-auth token required")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("type") != "preauth":
+            raise HTTPException(status_code=401, detail="Invalid token type")
+        username = payload.get("sub")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Login session expired")
+    
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalars().first()
     

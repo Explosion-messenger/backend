@@ -148,6 +148,18 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
     if not result.scalars().first():
         return None
 
+    # Verify file_id exists
+    if payload.file_id:
+        file_check = await db.execute(select(File).where(File.id == payload.file_id))
+        if not file_check.scalars().first():
+            return None
+            
+    # Verify reply_to_id belongs to the chat
+    if payload.reply_to_id:
+        reply_check = await db.execute(select(Message).where(Message.id == payload.reply_to_id, Message.chat_id == payload.chat_id))
+        if not reply_check.scalars().first():
+            return None
+
     # 3. Deduplication: Check if the exact same message was sent by the same user in the last 1 second
     if payload.text:
         one_second_ago = datetime.now(timezone.utc) - timedelta(seconds=1)
@@ -156,14 +168,14 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
             .where(
                 Message.chat_id == payload.chat_id,
                 Message.sender_id == sender_id,
-                Message.text == payload.text,
-                Message.created_at >= one_second_ago
+                Message.text == payload.text
             )
-            .order_by(Message.created_at.desc())
+            .order_by(Message.id.desc())
+            .limit(1)
         )
         dup_result = await db.execute(dup_stmt)
         existing_msg = dup_result.scalars().first()
-        if existing_msg:
+        if existing_msg and existing_msg.created_at >= datetime.now(timezone.utc) - timedelta(seconds=2):
             # Already sent, return the existing one to avoid duplicates
             # We still refetch with eager loading to be safe
             stmt = select(Message).where(Message.id == existing_msg.id).options(joinedload(Message.file), joinedload(Message.sender))

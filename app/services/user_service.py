@@ -1,3 +1,4 @@
+import aiofiles
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from datetime import timedelta
@@ -100,17 +101,17 @@ async def update_user_avatar(db: AsyncSession, user: User, file_content, filenam
     os.makedirs(settings.AVATAR_DIR, exist_ok=True)
     
     file_size = 0
-    with open(file_path, "wb") as buffer:
+    async with aiofiles.open(file_path, "wb") as buffer:
         while True:
             chunk = file_content.read(1024 * 512)  # 512KB chunks
             if not chunk:
                 break
             file_size += len(chunk)
             if file_size > 5 * 1024 * 1024:  # 5MB avatar limit
-                buffer.close()
+                await buffer.close()
                 os.remove(file_path)
                 raise HTTPException(status_code=413, detail="Avatar is too large (max 5MB)")
-            buffer.write(chunk)
+            await buffer.write(chunk)
     
     # If user had an old avatar, delete it
     if user.avatar_path:
