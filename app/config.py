@@ -23,7 +23,14 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     
     # CORS
-    CORS_ORIGINS: List[str] = ["*"]  # For mobile/dev simplicity, allowing all. Restrict in production via Nginx/Caddy.
+    CORS_ORIGINS: List[str] = [
+        "http://localhost",
+        "http://localhost:5173",
+        "https://localhost",
+        "https://messenger.app",
+        "http://127.0.0.1",
+        "http://127.0.0.1:5173",
+    ]
     
     # File Storage
     UPLOAD_DIR: str = "uploads"

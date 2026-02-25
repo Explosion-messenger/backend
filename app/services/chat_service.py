@@ -163,9 +163,9 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
     return chat_out
 
 async def search_users(db: AsyncSession, query: str, exclude_user_id: int):
-    # Escape SQL LIKE wildcards to prevent wildcard injection
-    safe_query = query.replace("%", "\\%").replace("_", "\\_")
-    stmt = select(User).where(User.username.ilike(f"%{safe_query}%")).where(User.id != exclude_user_id)
+    # Escape SQL LIKE wildcards    # Use explicit escape character
+    safe_query = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    stmt = select(User).where(User.username.ilike(f"%{safe_query}%", escape="\\")).where(User.id != exclude_user_id)
     result = await db.execute(stmt)
     return result.scalars().all()
 

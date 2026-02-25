@@ -103,7 +103,7 @@ async def update_user_avatar(db: AsyncSession, user: User, file_content, filenam
     file_size = 0
     async with aiofiles.open(file_path, "wb") as buffer:
         while True:
-            chunk = file_content.read(1024 * 512)  # 512KB chunks
+            chunk = await file_content.read(1024 * 512)  # 512KB chunks
             if not chunk:
                 break
             file_size += len(chunk)

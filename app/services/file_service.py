@@ -20,7 +20,7 @@ async def save_file(db: AsyncSession, file_content, filename: str, content_type:
     file_size = 0
     async with aiofiles.open(file_path, "wb") as buffer:
         while True:
-            chunk = file_content.read(1024 * 1024)  # 1MB chunks
+            chunk = await file_content.read(1024 * 1024)  # 1MB chunks
             if not chunk:
                 break
             file_size += len(chunk)

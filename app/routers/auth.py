@@ -4,15 +4,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ..database import get_db
 from ..models import User
-from ..schemas import UserCreate, UserOut, Token, EmailVerification, LoginResponse, TwoFASetup, TwoFAVerify, UserRegisterConfirm, PasswordlessLogin
-from ..auth import get_current_user, get_current_admin_user
+from ..schemas import UserCreate, UserOut, Token, EmailVerification, LoginResponse, TwoFASetup, TwoFAVerify, UserRegisterConfirm, PasswordlessLogin, PasswordlessLoginRequest
+from ..auth import get_current_user, get_current_admin_user, oauth2_scheme
 from ..services import user_service
 from ..websockets import manager
+from ..main import limiter
+from passlib.context import CryptContext
 
-router = APIRouter()
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-@router.post("/register/setup", response_model=TwoFASetup)
-async def register_setup(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+router = APIRouter(prefix="/auth")
+
+@router.post("/register/setup", summary="Step 1: Get OTP for registration", response_model=TwoFASetup)
+@limiter.limit("5/minute")
+async def register_setup(request: Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     if await user_service.check_user_exists(db, user_in.username, user_in.email):
         raise HTTPException(status_code=400, detail="Username or Email already registered")
         
@@ -23,15 +28,17 @@ async def register_setup(user_in: UserCreate, db: AsyncSession = Depends(get_db)
     secret = generate_2fa_secret()
     uri = get_2fa_uri(user_in.username, secret)
     
+    hashed_temp_password = pwd_context.hash(user_in.password)
     setup_token = create_access_token(
-        data={"sub": user_in.username, "email": user_in.email, "password": user_in.password, "secret": secret},
+        data={"sub": user_in.username, "email": user_in.email, "password": hashed_temp_password, "secret": secret},
         expires_delta=timedelta(minutes=10),
         token_type="setup"
     )
     return TwoFASetup(otp_auth_url=uri, secret=secret, setup_token=setup_token)
 
-@router.post("/register/confirm", response_model=UserOut)
-async def register_confirm(data: UserRegisterConfirm, db: AsyncSession = Depends(get_db)):
+@router.post("/register/confirm", summary="Step 2: Verify OTP and create user", response_model=UserOut)
+@limiter.limit("5/minute")
+async def register_confirm(request: Request, data: UserRegisterConfirm, db: AsyncSession = Depends(get_db)):
     from ..services.otp_service import verify_2fa_code
     from jose import jwt, JWTError
     from ..auth import SECRET_KEY, ALGORITHM
@@ -58,7 +65,8 @@ async def register_confirm(data: UserRegisterConfirm, db: AsyncSession = Depends
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     result = await user_service.authenticate_user(db, form_data.username, form_data.password)
     user = result["user"]
     if not user:
@@ -92,7 +100,8 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
     )
 
 @router.post("/login/2fa", response_model=LoginResponse)
-async def login_2fa(data: TwoFAVerify, token: str = Depends(OAuth2PasswordBearer(tokenUrl="login", auto_error=False)), db: AsyncSession = Depends(get_db)):
+@limiter.limit("5/minute")
+async def login_2fa(request: Request, data: TwoFAVerify, token: str = Depends(OAuth2PasswordBearer(tokenUrl="login", auto_error=False)), db: AsyncSession = Depends(get_db)):
     from ..services.otp_service import verify_2fa_code
     from jose import jwt, JWTError
     from ..auth import SECRET_KEY, ALGORITHM, create_access_token
@@ -128,8 +137,9 @@ async def login_2fa(data: TwoFAVerify, token: str = Depends(OAuth2PasswordBearer
     else:
         raise HTTPException(status_code=401, detail="Invalid 2FA code")
 
-@router.post("/login/2fa/passwordless", response_model=LoginResponse)
-async def login_2fa_passwordless(data: PasswordlessLogin, db: AsyncSession = Depends(get_db)):
+@router.post("/login/passwordless", summary="Step 1: Get OTP for passwordless login", response_model=LoginResponse)
+@limiter.limit("5/minute")
+async def login_passwordless(request: Request, data: PasswordlessLogin, db: AsyncSession = Depends(get_db)):
     user = await user_service.verify_passwordless_2fa(db, data.username, data.code)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid username or 2FA code")

@@ -34,9 +34,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+
+# Initialize Limiter
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 # Exception Handlers
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    # Only trap if it's not a rate limit exception (handled natively above)
+    if isinstance(exc, RateLimitExceeded):
+        return await _rate_limit_exceeded_handler(request, exc)
     logger.error(f"Global error: {str(exc)}", exc_info=True)
     return JSONResponse(
         status_code=500,

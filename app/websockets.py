@@ -105,20 +105,26 @@ class ConnectionManager:
         if user_id in self.active_connections:
             # Create a copy of sockets to avoid dict mutation during iteration
             sockets = list(self.active_connections[user_id].keys())
+            dead_sockets = []
             for connection in sockets:
                 try:
                     await connection.send_json(message)
                 except Exception as e:
                     logger.error(f"Failed to send message to user {user_id}: {str(e)}")
-                    if user_id in self.active_connections and connection in self.active_connections[user_id]:
-                        del self.active_connections[user_id][connection]
+                    dead_sockets.append(connection)
+            
+            for connection in dead_sockets:
+                if user_id in self.active_connections and connection in self.active_connections[user_id]:
+                    del self.active_connections[user_id][connection]
             
             if user_id in self.active_connections and not self.active_connections[user_id]:
                 del self.active_connections[user_id]
                 if user_id in self.user_statuses:
                     del self.user_statuses[user_id]
-                # If the last socket just died, notify others
-                await self.broadcast_status(user_id, "offline")
+                
+                # IMPORTANT: we don't broadcast offline status here to prevent recursion
+                # if other users' sockets are also dead. The offline status will be organically
+                # calculated or broadcasted by explicit disconnects instead.
 
     async def broadcast_to_chat(self, message: dict, member_ids: List[int]):
         logger.info(f"ConnectionManager: Broadcasting to members {member_ids}")
