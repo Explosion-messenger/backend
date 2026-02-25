@@ -5,13 +5,10 @@ from sqlalchemy import select
 from ..database import get_db
 from ..models import User
 from ..schemas import UserCreate, UserOut, Token, EmailVerification, LoginResponse, TwoFASetup, TwoFAVerify, UserRegisterConfirm, PasswordlessLogin, PasswordlessLoginRequest
-from ..auth import get_current_user, get_current_admin_user, oauth2_scheme
+from ..auth import get_current_user, get_current_admin_user, oauth2_scheme, get_password_hash
 from ..services import user_service
 from ..websockets import manager
 from ..limiter import limiter
-from passlib.context import CryptContext
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 router = APIRouter(prefix="/auth")
 
@@ -28,7 +25,7 @@ async def register_setup(request: Request, user_in: UserCreate, db: AsyncSession
     secret = generate_2fa_secret()
     uri = get_2fa_uri(user_in.username, secret)
     
-    hashed_temp_password = pwd_context.hash(user_in.password)
+    hashed_temp_password = get_password_hash(user_in.password)
     setup_token = create_access_token(
         data={"sub": user_in.username, "email": user_in.email, "password": hashed_temp_password, "secret": secret},
         expires_delta=timedelta(minutes=10),
