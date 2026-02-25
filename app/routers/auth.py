@@ -137,12 +137,23 @@ async def login_2fa(request: Request, data: TwoFAVerify, token: str = Depends(OA
     else:
         raise HTTPException(status_code=401, detail="Invalid 2FA code")
 
-@router.post("/login/passwordless", summary="Step 1: Get OTP for passwordless login", response_model=LoginResponse)
+@router.post("/login/passwordless", summary="Step 1: Initiate passwordless login", response_model=LoginResponse)
 @limiter.limit("5/minute")
-async def login_passwordless(request: Request, data: PasswordlessLogin, db: AsyncSession = Depends(get_db)):
+async def login_passwordless_init(request: Request, data: PasswordlessLoginRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.username == data.username))
+    user = result.scalars().first()
+    if not user or not user.is_2fa_enabled:
+        raise HTTPException(status_code=401, detail="User not found or 2FA not enabled for this node")
+    
+    # We return requires_2fa=True. The frontend will then ask for the code.
+    return LoginResponse(requires_2fa=True, username=user.username)
+
+@router.post("/login/2fa/passwordless", summary="Step 2: Verify code for passwordless login", response_model=LoginResponse)
+@limiter.limit("5/minute")
+async def login_passwordless_verify(request: Request, data: PasswordlessLogin, db: AsyncSession = Depends(get_db)):
     user = await user_service.verify_passwordless_2fa(db, data.username, data.code)
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid username or 2FA code")
+        raise HTTPException(status_code=401, detail="Invalid neural bypass code")
         
     token_data = user_service.create_user_token(user)
     return LoginResponse(

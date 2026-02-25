@@ -43,6 +43,9 @@ class PasswordlessLogin(BaseModel):
     username: str
     code: str
 
+class PasswordlessLoginRequest(BaseModel):
+    username: str
+
 class LoginResponse(BaseModel):
     access_token: Optional[str] = None
     token_type: Optional[str] = None
