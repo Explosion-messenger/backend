@@ -10,7 +10,7 @@ from ..services import user_service
 from ..websockets import manager
 from ..limiter import limiter
 
-router = APIRouter(prefix="/auth")
+router = APIRouter()
 
 @router.post("/register/setup", summary="Step 1: Get OTP for registration", response_model=TwoFASetup)
 @limiter.limit("5/minute")
