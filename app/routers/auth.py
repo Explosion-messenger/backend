@@ -8,7 +8,7 @@ from ..schemas import UserCreate, UserOut, Token, EmailVerification, LoginRespon
 from ..auth import get_current_user, get_current_admin_user, oauth2_scheme
 from ..services import user_service
 from ..websockets import manager
-from ..main import limiter
+from ..limiter import limiter
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
