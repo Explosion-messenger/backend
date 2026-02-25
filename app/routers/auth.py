@@ -142,8 +142,21 @@ async def login_passwordless_init(request: Request, data: PasswordlessLoginReque
     if not user or not user.is_2fa_enabled:
         raise HTTPException(status_code=401, detail="User not found or 2FA not enabled for this node")
     
+    from ..auth import create_access_token
+    from datetime import timedelta
+    preauth = create_access_token(
+        data={"sub": user.username},
+        expires_delta=timedelta(minutes=5),
+        token_type="preauth"
+    )
+    
     # We return requires_2fa=True. The frontend will then ask for the code.
-    return LoginResponse(requires_2fa=True, username=user.username)
+    return LoginResponse(
+        access_token=preauth,
+        token_type="bearer",
+        requires_2fa=True, 
+        username=user.username
+    )
 
 @router.post("/login/2fa/passwordless", summary="Step 2: Verify code for passwordless login", response_model=LoginResponse)
 @limiter.limit("5/minute")
