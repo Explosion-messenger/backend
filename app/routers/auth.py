@@ -196,7 +196,7 @@ async def upload_avatar(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    user = await user_service.update_user_avatar(db, current_user, file.file, file.filename)
+    user = await user_service.update_user_avatar(db, current_user, file, file.filename)
     await manager.broadcast_user_update(user.id, user.username, user.avatar_path)
     return user
 

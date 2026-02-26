@@ -2,6 +2,7 @@ import os
 import shutil
 import uuid
 import logging
+import aiofiles
 from typing import List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -382,8 +383,12 @@ async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename
     new_filename = f"chat_{chat_id}_{uuid.uuid4()}{ext}"
     dest_path = os.path.join(settings.AVATAR_DIR, new_filename)
     
-    with open(dest_path, "wb") as buffer:
-        shutil.copyfileobj(file, buffer)
+    async with aiofiles.open(dest_path, "wb") as buffer:
+        while True:
+            chunk = await file.read(1024 * 512)
+            if not chunk:
+                break
+            await buffer.write(chunk)
     
     # Delete old avatar if exists
     if chat.avatar_path:

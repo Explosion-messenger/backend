@@ -11,6 +11,11 @@ from ..schemas import UserCreate
 from ..auth import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
 from ..config import settings
 
+from jose import jwt, JWTError
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
+from .otp_service import verify_2fa_code
+
 async def check_user_exists(db: AsyncSession, username: str, email: Optional[str] = None) -> bool:
     stmt = select(User).where(User.username == username)
     if email:
@@ -19,7 +24,6 @@ async def check_user_exists(db: AsyncSession, username: str, email: Optional[str
     return result.scalars().first() is not None
 
 async def register_user(db: AsyncSession, user_in: UserCreate, secret: str, is_verified: bool = False) -> Optional[User]:
-    from sqlalchemy.exc import IntegrityError
     
     hashed_password = get_password_hash(user_in.password)
     
@@ -56,7 +60,6 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> d
     return {"user": user, "requires_2fa": False}
 
 async def verify_passwordless_2fa(db: AsyncSession, username: str, code: str) -> Optional[User]:
-    from .otp_service import verify_2fa_code
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalars().first()
     
@@ -138,7 +141,6 @@ async def clear_all_avatars(db: AsyncSession):
                 pass
     
     # 2. Reset avatar_path for all users in DB
-    from sqlalchemy import update
     await db.execute(update(User).values(avatar_path=None))
     await db.commit()
     return {"status": "success", "message": "All avatars cleared"}

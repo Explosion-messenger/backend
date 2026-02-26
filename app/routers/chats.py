@@ -69,7 +69,7 @@ async def upload_chat_avatar(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    chat = await chat_service.update_chat_avatar(db, chat_id, file.file, file.filename, current_user.id)
+    chat = await chat_service.update_chat_avatar(db, chat_id, file, file.filename, current_user.id)
     if not chat:
         raise HTTPException(status_code=403, detail="Forbidden or chat not found")
     return chat

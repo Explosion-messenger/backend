@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File as FastAPIFile
+from fastapi.responses import FileResponse
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
@@ -6,12 +7,13 @@ from ..database import get_db
 from ..schemas import FileOut
 from ..auth import get_current_user
 from ..services import file_service
+from ..config import settings
 
 router = APIRouter()
 
 @router.post("/files/upload", response_model=FileOut)
 async def upload_file(file: UploadFile = FastAPIFile(...), current_user = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    db_file = await file_service.save_file(db, file.file, file.filename, file.content_type)
+    db_file = await file_service.save_file(db, file, file.filename, file.content_type)
     return db_file
 
 @router.get("/files/download/{file_path:path}")
@@ -20,9 +22,6 @@ async def download_file(
     current_user = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    from fastapi.responses import FileResponse
-    from ..config import settings
-
     # Sanitize: only allow the basename to prevent path traversal (e.g. ../../etc/passwd)
     safe_name = os.path.basename(file_path)
     if not safe_name:

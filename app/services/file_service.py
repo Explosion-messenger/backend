@@ -1,10 +1,14 @@
 import aiofiles
-from sqlalchemy.ext.asyncio import AsyncSession
 import os
 import uuid
+import logging
 from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
 from ..models import File
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 async def save_file(db: AsyncSession, file_content, filename: str, content_type: str) -> File:
     file_ext = os.path.splitext(filename)[1].lower()
@@ -43,7 +47,6 @@ async def save_file(db: AsyncSession, file_content, filename: str, content_type:
 
 async def delete_file(db: AsyncSession, file_id: int) -> bool:
     """Delete a file record from the DB and its physical file from disk."""
-    from sqlalchemy.future import select
     result = await db.execute(select(File).where(File.id == file_id))
     db_file = result.scalars().first()
     if not db_file:
