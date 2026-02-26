@@ -2,13 +2,6 @@ import pyotp
 from typing import Tuple
 from ..config import settings
 
-def generate_email_otp() -> str:
-    # Use TOTP with a fixed interval but we'll use it as a one-time code for simplicity
-    # or just generate a random string.
-    # Standard 6-digit code
-    totp = pyotp.TOTP(pyotp.random_base32())
-    return totp.now()
-
 def generate_2fa_secret() -> str:
     return pyotp.random_base32()
 

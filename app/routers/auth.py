@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from ..database import get_db
 from ..models import User
-from ..schemas import UserCreate, UserOut, Token, EmailVerification, LoginResponse, TwoFASetup, TwoFAVerify, UserRegisterConfirm, PasswordlessLogin, PasswordlessLoginRequest
-from ..auth import get_current_user, get_current_admin_user, oauth2_scheme, get_password_hash
+from ..schemas import UserCreate, UserOut, LoginResponse, TwoFASetup, TwoFAVerify, UserRegisterConfirm, PasswordlessLogin, PasswordlessLoginRequest
+from ..auth import get_current_user, get_current_admin_user, get_password_hash
 from ..services import user_service
 from ..websockets import manager
 from ..limiter import limiter

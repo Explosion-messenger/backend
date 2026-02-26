@@ -40,19 +40,6 @@ async def register_user(db: AsyncSession, user_in: UserCreate, secret: str, is_v
         return None
     return user
 
-async def verify_user_email(db: AsyncSession, username: str, code: str) -> bool:
-    result = await db.execute(select(User).where(User.username == username))
-    user = result.scalars().first()
-    if not user or user.is_verified:
-        return False
-    
-    if user.otp_secret == code:
-        user.is_verified = True
-        user.otp_secret = None  # Clear temporary code
-        await db.commit()
-        return True
-    return False
-
 async def authenticate_user(db: AsyncSession, username: str, password: str) -> dict:
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalars().first()

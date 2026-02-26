@@ -27,10 +27,6 @@ class ChatMemberOut(UserOut):
     is_chat_admin: bool = False
     is_chat_owner: bool = False
 
-class EmailVerification(BaseModel):
-    username: str
-    code: str
-
 class TwoFASetup(BaseModel):
     otp_auth_url: str
     secret: str
@@ -51,10 +47,6 @@ class LoginResponse(BaseModel):
     token_type: Optional[str] = None
     requires_2fa: bool = False
     username: Optional[str] = None
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
 
 class FileOut(BaseModel):
     id: int

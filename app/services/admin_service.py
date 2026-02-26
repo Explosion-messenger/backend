@@ -42,10 +42,3 @@ async def clear_all_chats(db: AsyncSession):
     await db.commit()
     return {"status": "success", "message": "All chats and members cleared"}
 
-async def clear_database(db: AsyncSession):
-    """Wipe all messages, files, and chats (Full system reset)."""
-    await clear_all_messages(db)
-    await clear_all_files(db)
-    await clear_all_chats(db)
-    # We keep users, but clear their metadata if needed. 
-    return {"status": "success", "message": "System state reset: all messages, files, and chats wiped"}
