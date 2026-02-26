@@ -15,9 +15,19 @@ router = APIRouter()
 @router.post("/register/setup", summary="Step 1: Get OTP for registration", response_model=TwoFASetup)
 @limiter.limit("5/minute")
 async def register_setup(request: Request, user_in: UserCreate, db: AsyncSession = Depends(get_db)):
-    if await user_service.check_user_exists(db, user_in.username, user_in.email):
-        raise HTTPException(status_code=400, detail="Username or Email already registered")
-        
+    # Check if user exists
+    stmt = select(User).where((User.username == user_in.username) | (User.email == user_in.email))
+    result = await db.execute(stmt)
+    existing_user = result.scalars().first()
+    
+    if existing_user:
+        if existing_user.is_verified:
+            raise HTTPException(status_code=400, detail="Username or Email already registered")
+        else:
+            # Unverified user. Delete to allow fresh registration.
+            await db.delete(existing_user)
+            await db.commit()
+            
     from ..services.otp_service import generate_2fa_secret, get_2fa_uri
     from ..auth import create_access_token
     from datetime import timedelta
@@ -25,9 +35,13 @@ async def register_setup(request: Request, user_in: UserCreate, db: AsyncSession
     secret = generate_2fa_secret()
     uri = get_2fa_uri(user_in.username, secret)
     
-    hashed_temp_password = get_password_hash(user_in.password)
+    # Create the user in unverified state
+    user = await user_service.register_user(db, user_in, secret, is_verified=False)
+    if not user:
+        raise HTTPException(status_code=400, detail="Registration failed")
+
     setup_token = create_access_token(
-        data={"sub": user_in.username, "email": user_in.email, "password": hashed_temp_password, "secret": secret},
+        data={"user_id": user.id},
         expires_delta=timedelta(minutes=10),
         token_type="setup"
     )
@@ -44,20 +58,23 @@ async def register_confirm(request: Request, data: UserRegisterConfirm, db: Asyn
         payload = jwt.decode(data.setup_token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "setup":
             raise HTTPException(status_code=400, detail="Invalid token type")
-        username = payload.get("sub")
-        email = payload.get("email")
-        password = payload.get("password")
-        secret = payload.get("secret")
+        user_id = payload.get("user_id")
     except JWTError:
         raise HTTPException(status_code=400, detail="Registration session expired or invalid")
         
-    if not verify_2fa_code(secret, data.code):
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalars().first()
+    
+    if not user or user.is_verified:
+        raise HTTPException(status_code=400, detail="Invalid registration session or user already verified")
+
+    if not verify_2fa_code(user.otp_secret, data.code):
         raise HTTPException(status_code=400, detail="Invalid 2FA code")
         
-    user_data = UserCreate(username=username, email=email, password=password)
-    user = await user_service.register_user(db, user_data, secret)
-    if not user:
-        raise HTTPException(status_code=400, detail="Registration failed (user might exist now)")
+    user.is_verified = True
+    user.is_2fa_enabled = True
+    await db.commit()
+    await db.refresh(user)
     return user
 
 

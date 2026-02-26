@@ -18,7 +18,7 @@ async def check_user_exists(db: AsyncSession, username: str, email: Optional[str
     result = await db.execute(stmt)
     return result.scalars().first() is not None
 
-async def register_user(db: AsyncSession, user_in: UserCreate, secret: str) -> Optional[User]:
+async def register_user(db: AsyncSession, user_in: UserCreate, secret: str, is_verified: bool = False) -> Optional[User]:
     from sqlalchemy.exc import IntegrityError
     
     hashed_password = get_password_hash(user_in.password)
@@ -28,8 +28,8 @@ async def register_user(db: AsyncSession, user_in: UserCreate, secret: str) -> O
         email=user_in.email,
         password_hash=hashed_password,
         otp_secret=secret,
-        is_verified=True,
-        is_2fa_enabled=True
+        is_verified=is_verified,
+        is_2fa_enabled=is_verified
     )
     db.add(user)
     try:
@@ -57,7 +57,7 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> d
     result = await db.execute(select(User).where(User.username == username))
     user = result.scalars().first()
     
-    if not user:
+    if not user or not user.is_verified:
         return {"user": None, "requires_2fa": False}
         
     if not verify_password(password, user.password_hash):
@@ -66,7 +66,6 @@ async def authenticate_user(db: AsyncSession, username: str, password: str) -> d
     if user.is_2fa_enabled:
         return {"user": user, "requires_2fa": True}
         
-    # Should not happen with new registration flow, but for safety:
     return {"user": user, "requires_2fa": False}
 
 async def verify_passwordless_2fa(db: AsyncSession, username: str, code: str) -> Optional[User]:
