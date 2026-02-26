@@ -7,9 +7,11 @@ import asyncio
 import os
 import logging
 from datetime import datetime, timedelta, timezone
+from sqlalchemy import text, and_, not_, insert
 from ..models import Message, ChatMember, User, File, MessageRead
 from ..schemas import MessageCreate
 from ..websockets import manager
+from ..ws_types import WSEventType
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +73,7 @@ async def mark_as_read(db: AsyncSession, message_id: int, user_id: int):
     member_ids = list(res.scalars().all())
 
     ws_msg = {
-        "type": "message_read",
+        "type": WSEventType.MESSAGE_READ,
         "data": {
             "message_id": message_id,
             "chat_id": message.chat_id,
@@ -89,8 +91,6 @@ async def mark_all_as_read(db: AsyncSession, chat_id: int, user_id: int):
     res = await db.execute(stmt)
     if not res.scalars().first():
         return False
-
-    # Find unread messages for this user in this chat
     from sqlalchemy import and_, not_
     unread_stmt = (
         select(Message.id)
@@ -111,23 +111,18 @@ async def mark_all_as_read(db: AsyncSession, chat_id: int, user_id: int):
     if not unread_ids:
         return True
 
-    # Mark all as read
-    for msg_id in unread_ids:
-        db.add(MessageRead(message_id=msg_id, user_id=user_id))
-    
+    # Bulk insert for N+1 performance improvement
+    await db.execute(insert(MessageRead), [{"message_id": msg_id, "user_id": user_id} for msg_id in unread_ids])
     await db.commit()
 
-    # Notify members via WS for each read message
-    # To avoid flood, we could send a single bulk_read event, 
-    # but the current frontend expects message_read.
-    # We'll batch them and send.
+    # Notify members via WS
     read_at = datetime.now(timezone.utc).isoformat()
     stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
     member_ids = list((await db.execute(stmt)).scalars().all())
 
     for msg_id in unread_ids:
         ws_msg = {
-            "type": "message_read",
+            "type": WSEventType.MESSAGE_READ,
             "data": {
                 "message_id": msg_id,
                 "chat_id": chat_id,
@@ -140,9 +135,6 @@ async def mark_all_as_read(db: AsyncSession, chat_id: int, user_id: int):
     return True
 
 async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int) -> Message:
-    # 1. Artificial delay to ensure serialization and meet user request for business logic delay
-    await asyncio.sleep(0.1)
-
     # 2. Verify user is in chat
     stmt = select(ChatMember).where(ChatMember.chat_id == payload.chat_id, ChatMember.user_id == sender_id)
     result = await db.execute(stmt)
@@ -213,7 +205,7 @@ async def send_message(db: AsyncSession, payload: MessageCreate, sender_id: int)
     member_ids = (await db.execute(stmt)).scalars().all()
     
     ws_msg = {
-        "type": "new_message",
+        "type": WSEventType.NEW_MESSAGE,
         "data": {
             "id": message.id,
             "chat_id": message.chat_id,
@@ -278,7 +270,7 @@ async def delete_message(db: AsyncSession, message_id: int, user_id: int) -> boo
     await db.commit()
     
     ws_msg = {
-        "type": "delete_message",
+        "type": WSEventType.DELETE_MESSAGE,
         "data": {
             "message_id": message_id,
             "chat_id": chat_id
@@ -323,7 +315,7 @@ async def delete_messages(db: AsyncSession, message_ids: List[int], user_id: int
     # Broadcast deletions
     for message in messages:
         ws_msg = {
-            "type": "delete_message",
+            "type": WSEventType.DELETE_MESSAGE,
             "data": {
                 "message_id": message.id,
                 "chat_id": message.chat_id

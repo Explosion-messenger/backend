@@ -2,11 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File 
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from datetime import timedelta
+from jose import jwt, JWTError
+
 from ..database import get_db
 from ..models import User
 from ..schemas import UserCreate, UserOut, LoginResponse, TwoFASetup, TwoFAVerify, UserRegisterConfirm, PasswordlessLogin, PasswordlessLoginRequest
-from ..auth import get_current_user, get_current_admin_user, get_password_hash
+from ..auth import get_current_user, get_current_admin_user, get_password_hash, create_access_token, SECRET_KEY, ALGORITHM
 from ..services import user_service
+from ..services.otp_service import generate_2fa_secret, get_2fa_uri, verify_2fa_code
 from ..websockets import manager
 from ..limiter import limiter
 
@@ -28,10 +32,7 @@ async def register_setup(request: Request, user_in: UserCreate, db: AsyncSession
             await db.delete(existing_user)
             await db.commit()
             
-    from ..services.otp_service import generate_2fa_secret, get_2fa_uri
-    from ..auth import create_access_token
-    from datetime import timedelta
-    
+
     secret = generate_2fa_secret()
     uri = get_2fa_uri(user_in.username, secret)
     
@@ -50,10 +51,7 @@ async def register_setup(request: Request, user_in: UserCreate, db: AsyncSession
 @router.post("/register/confirm", summary="Step 2: Verify OTP and create user", response_model=UserOut)
 @limiter.limit("5/minute")
 async def register_confirm(request: Request, data: UserRegisterConfirm, db: AsyncSession = Depends(get_db)):
-    from ..services.otp_service import verify_2fa_code
-    from jose import jwt, JWTError
-    from ..auth import SECRET_KEY, ALGORITHM
-    
+
     try:
         payload = jwt.decode(data.setup_token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("type") != "setup":
@@ -91,8 +89,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
         )
         
     if result["requires_2fa"]:
-        from ..auth import create_access_token
-        from datetime import timedelta
+
         preauth = create_access_token(
             data={"sub": user.username},
             expires_delta=timedelta(minutes=5),
@@ -116,9 +113,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 @router.post("/login/2fa", response_model=LoginResponse)
 @limiter.limit("5/minute")
 async def login_2fa(request: Request, data: TwoFAVerify, token: str = Depends(OAuth2PasswordBearer(tokenUrl="login", auto_error=False)), db: AsyncSession = Depends(get_db)):
-    from ..services.otp_service import verify_2fa_code
-    from jose import jwt, JWTError
-    from ..auth import SECRET_KEY, ALGORITHM, create_access_token
+
     
     if not token:
         raise HTTPException(status_code=401, detail="Pre-auth token required")
@@ -159,8 +154,7 @@ async def login_passwordless_init(request: Request, data: PasswordlessLoginReque
     if not user or not user.is_2fa_enabled:
         raise HTTPException(status_code=401, detail="User not found or 2FA not enabled for this node")
     
-    from ..auth import create_access_token
-    from datetime import timedelta
+
     preauth = create_access_token(
         data={"sub": user.username},
         expires_delta=timedelta(minutes=5),

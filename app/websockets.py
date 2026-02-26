@@ -2,6 +2,10 @@ from fastapi import WebSocket
 from typing import Dict, List, Set
 import json
 import logging
+from sqlalchemy import select
+from .database import AsyncSessionLocal
+from .models import User as DBUser, ChatMember
+from .ws_types import WSEventType
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +77,7 @@ class ConnectionManager:
 
     async def broadcast_status(self, user_id: int, status: str):
         status_msg = {
-            "type": "user_status",
+            "type": WSEventType.USER_STATUS,
             "data": {
                 "user_id": user_id,
                 "status": status,
@@ -88,7 +92,7 @@ class ConnectionManager:
 
     async def broadcast_user_update(self, user_id: int, username: str, avatar_path: str = None):
         update_msg = {
-            "type": "user_updated",
+            "type": WSEventType.USER_UPDATED,
             "data": {
                 "id": user_id,
                 "username": username,
@@ -133,25 +137,23 @@ class ConnectionManager:
 
     async def handle_message(self, user_id: int, msg: dict, websocket: WebSocket):
         msg_type = msg.get("type")
-        if msg_type == "typing":
+        if msg_type == WSEventType.TYPING:
             chat_id = msg.get("chat_id")
             is_typing = msg.get("is_typing", False)
             if chat_id:
                 try:
-                    from .services.chat_service import get_chat_member_ids
-                    from .models import User as DBUser
-                    from sqlalchemy import select
-                    from .database import AsyncSessionLocal
                     async with AsyncSessionLocal() as db:
-                        member_ids_task = await get_chat_member_ids(db, chat_id)
+                        member_ids_stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
+                        member_ids_result = await db.execute(member_ids_stmt)
+                        member_ids = member_ids_result.scalars().all()
+
                         user_name_stmt = select(DBUser.username).where(DBUser.id == user_id)
                         user_name_result = await db.execute(user_name_stmt)
                         user_name = user_name_result.scalar()
-                        member_ids = member_ids_task
 
                         if user_name:
                             ws_msg = {
-                                "type": "typing",
+                                "type": WSEventType.TYPING,
                                 "data": {
                                     "chat_id": chat_id,
                                     "user_id": user_id,
@@ -164,7 +166,7 @@ class ConnectionManager:
                 except Exception as e:
                     logger.error(f"Typing broadcast failure: {e}")
         
-        elif msg_type == "user_status_update":
+        elif msg_type == WSEventType.USER_STATUS_UPDATE:
             new_status = msg.get("status")
             if new_status:
                 await self.update_user_status(user_id, new_status, websocket)

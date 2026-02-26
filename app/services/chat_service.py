@@ -1,17 +1,22 @@
+import os
+import shutil
+import uuid
+import logging
+from typing import List, Optional
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, joinedload
-from typing import List, Optional
-import os
-import shutil
+from sqlalchemy import func
+
 from ..config import settings
-from ..models import Chat, ChatMember, User, Message
-from ..schemas import ChatCreate, ChatOut, ChatMemberOut
+from ..models import Chat, ChatMember, User, Message, MessageRead
 from ..websockets import manager
+from ..schemas import ChatCreate, ChatOut, ChatMemberOut
+from ..ws_types import WSEventType
 
 async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
     # Subquery: get the latest message ID for each chat
-    from sqlalchemy import func
     last_msg_subq = (
         select(func.max(Message.id).label("max_id"))
         .where(Message.chat_id == Chat.id)
@@ -59,7 +64,6 @@ async def get_user_chats(db: AsyncSession, user_id: int) -> List[ChatOut]:
             for msg in msgs_result.unique().scalars().all():
                 last_messages[msg.chat_id] = msg
 
-        from ..models import MessageRead
         unread_stmt = (
             select(Message.chat_id, func.count(Message.id).label("unread_count"))
             .outerjoin(MessageRead, (Message.id == MessageRead.message_id) & (MessageRead.user_id == user_id))
@@ -121,7 +125,6 @@ async def create_chat(db: AsyncSession, payload: ChatCreate, creator_id: int) ->
             return None
         
         # Check if private chat already exists between these two members
-        from sqlalchemy import func
         stmt = (
             select(ChatMember.chat_id)
             .join(Chat, Chat.id == ChatMember.chat_id)
@@ -375,7 +378,6 @@ async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename
     if not chat or not chat.is_group:
         return None
     
-    import uuid
     ext = os.path.splitext(filename)[1]
     new_filename = f"chat_{chat_id}_{uuid.uuid4()}{ext}"
     dest_path = os.path.join(settings.AVATAR_DIR, new_filename)
@@ -390,7 +392,6 @@ async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename
             try:
                 os.remove(old_path)
             except Exception as e:
-                import logging
                 logging.getLogger(__name__).error(f"Error deleting file: {e}")
     
     chat.avatar_path = new_filename
@@ -398,8 +399,6 @@ async def update_chat_avatar(db: AsyncSession, chat_id: int, file: any, filename
     return await get_chat_out(db, chat_id)
 
 async def get_chat_member_ids(db: AsyncSession, chat_id: int) -> List[int]:
-    from sqlalchemy import select
-    from ..models import ChatMember
     stmt = select(ChatMember.user_id).where(ChatMember.chat_id == chat_id)
     result = await db.execute(stmt)
     return list(result.scalars().all())
